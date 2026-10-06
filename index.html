@@ -788,6 +788,9 @@
         </div>
 
         <div class="sidebar-bottom">
+          <div class="nav-item" onclick="abrirMinhaConta()">
+            <span>⚙</span><span>Minha conta</span>
+          </div>
           <div class="nav-item" onclick="logout()">
             <span>↪</span><span>Sair</span>
           </div>
@@ -1309,6 +1312,83 @@
       location.reload();
     }
 
+
+    /* ======================================================
+       MINHA CONTA / ALTERAR SENHA
+    ====================================================== */
+
+    async function abrirMinhaConta(){
+      const { data:{ user }, error } = await sb.auth.getUser();
+      if(error || !user){
+        alert("Não foi possível carregar os dados da conta.");
+        return;
+      }
+      document.getElementById("modalTitulo").textContent = "Minha conta";
+      document.getElementById("modalConteudo").innerHTML = `
+        <div class="form-grid">
+          <div class="field full">
+            <label>E-mail de acesso</label>
+            <input value="${escapeHTML(user.email || "")}" disabled>
+          </div>
+          <div class="field full">
+            <div style="padding:14px;border-radius:12px;background:var(--lilas-claro);color:var(--texto);font-size:13px;line-height:1.5;">
+              🔒 Sua senha é pessoal e não fica visível no sistema. Ao criar uma nova senha, a senha anterior deixa de funcionar.
+            </div>
+          </div>
+          <div class="field">
+            <label>Nova senha *</label>
+            <input id="contaNovaSenha" type="password" minlength="6" autocomplete="new-password" placeholder="Digite a nova senha">
+          </div>
+          <div class="field">
+            <label>Confirmar nova senha *</label>
+            <input id="contaConfirmarSenha" type="password" minlength="6" autocomplete="new-password" placeholder="Digite novamente">
+          </div>
+          <div class="field full">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:600">
+              <input id="contaMostrarSenha" type="checkbox" style="width:auto" onchange="alternarVisualizacaoSenha()">
+              Mostrar senha enquanto digito
+            </label>
+          </div>
+        </div>`;
+      const botao = document.getElementById("modalSalvar");
+      botao.disabled = false;
+      botao.textContent = "Alterar senha";
+      botao.onclick = alterarSenhaConta;
+      abrirModal();
+    }
+
+    function alternarVisualizacaoSenha(){
+      const mostrar = document.getElementById("contaMostrarSenha")?.checked;
+      const nova = document.getElementById("contaNovaSenha");
+      const confirmar = document.getElementById("contaConfirmarSenha");
+      if(nova) nova.type = mostrar ? "text" : "password";
+      if(confirmar) confirmar.type = mostrar ? "text" : "password";
+    }
+
+    async function alterarSenhaConta(){
+      const novaSenha = document.getElementById("contaNovaSenha")?.value || "";
+      const confirmarSenha = document.getElementById("contaConfirmarSenha")?.value || "";
+      if(novaSenha.length < 6){
+        alert("A nova senha precisa ter pelo menos 6 caracteres.");
+        return;
+      }
+      if(novaSenha !== confirmarSenha){
+        alert("As senhas não são iguais. Digite novamente.");
+        return;
+      }
+      const botao = document.getElementById("modalSalvar");
+      botao.disabled = true;
+      botao.textContent = "Alterando...";
+      const { error } = await sb.auth.updateUser({ password:novaSenha });
+      botao.disabled = false;
+      botao.textContent = "Alterar senha";
+      if(error){
+        alert("Não foi possível alterar a senha: " + error.message);
+        return;
+      }
+      fecharModal();
+      alert("Senha alterada com sucesso. A nova senha já está valendo.");
+    }
 
     /* ======================================================
        NAVEGAÇÃO
