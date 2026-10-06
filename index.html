@@ -647,6 +647,26 @@
                 .report-filters{display:flex;gap:10px;flex-wrap:wrap;}
                 .report-filters input,.report-filters select{max-width:220px;}
 
+
+                /* AGENDA SEMANAL */
+                .agenda-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
+                .agenda-nav,.agenda-view-switch{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+                .agenda-periodo{font-size:20px;font-weight:800;margin-left:8px;}
+                .agenda-view-btn.active{background:var(--lilas-claro);color:var(--lilas-escuro);border-color:#DCCEE7;}
+                .agenda-calendar-card{background:white;border:1px solid var(--borda);border-radius:17px;box-shadow:var(--sombra);overflow:auto;}
+                .agenda-week{min-width:980px;display:grid;grid-template-columns:78px repeat(6,minmax(145px,1fr));position:relative;}
+                .agenda-corner,.agenda-day-head{height:74px;background:#FCFAFD;border-bottom:1px solid var(--borda);border-right:1px solid var(--borda);position:sticky;top:0;z-index:6;display:flex;align-items:center;justify-content:center;}
+                .agenda-day-head{flex-direction:column;font-size:13px;font-weight:700;gap:3px;}
+                .agenda-day-head strong{font-size:20px;}.agenda-day-head.today{color:var(--lilas-escuro);background:var(--lilas-claro);}
+                .agenda-time{height:72px;border-right:1px solid var(--borda);border-bottom:1px solid #F0EBF2;padding:10px 10px 0;text-align:right;font-size:12px;color:var(--texto-claro);background:#fff;}
+                .agenda-cell{height:72px;border-right:1px solid var(--borda);border-bottom:1px solid #F0EBF2;position:relative;background:#fff;padding:4px;cursor:pointer;}
+                .agenda-cell:hover{background:#FCFAFD;}
+                .agenda-event{height:100%;min-height:62px;border-radius:10px;padding:8px 9px;background:var(--lilas-claro);border-left:4px solid var(--lilas);font-size:11px;line-height:1.25;overflow:hidden;cursor:pointer;box-shadow:0 3px 10px rgba(91,68,101,.07);}
+                .agenda-event strong{display:block;font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+                .agenda-event.compareceu{background:var(--verde-claro);border-left-color:var(--verde);}.agenda-event.faltou{background:var(--amarelo-claro);border-left-color:var(--amarelo);}.agenda-event.cancelado{background:var(--vermelho-claro);border-left-color:var(--vermelho);opacity:.8;}
+                .agenda-event .event-meta{color:var(--texto-claro);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+                .agenda-empty{padding:45px 20px;text-align:center;color:var(--texto-claro);}
+
                 @media(max-width:1050px){
                   .cards{
                     grid-template-columns:repeat(2,1fr);
@@ -992,27 +1012,29 @@
                     <div class="page-header">
                       <div>
                         <h1>Agenda</h1>
-                        <p>Sessões e atendimentos agendados.</p>
+                        <p>Visualize e organize os atendimentos da semana.</p>
                       </div>
-
-                      <button class="btn-primary" onclick="abrirNovaSessao()">
-                        + Nova sessão
-                      </button>
+                      <button class="btn-primary" onclick="abrirNovaSessao()">+ Nova sessão</button>
                     </div>
 
-                    <div class="table-card">
+                    <div class="agenda-toolbar">
+                      <div class="agenda-nav">
+                        <button class="btn-secondary" onclick="mudarSemana(-1)">‹</button>
+                        <button class="btn-secondary" onclick="irSemanaHoje()">Hoje</button>
+                        <button class="btn-secondary" onclick="mudarSemana(1)">›</button>
+                        <span id="agendaPeriodo" class="agenda-periodo"></span>
+                      </div>
+                      <div class="agenda-view-switch">
+                        <button id="btnAgendaCalendario" class="btn-secondary agenda-view-btn active" onclick="trocarVisualAgenda('calendario')">▣ Calendário</button>
+                        <button id="btnAgendaLista" class="btn-secondary agenda-view-btn" onclick="trocarVisualAgenda('lista')">☰ Lista</button>
+                      </div>
+                    </div>
+
+                    <div id="agendaCalendario" class="agenda-calendar-card"></div>
+
+                    <div id="agendaLista" class="table-card hidden">
                       <table>
-                        <thead>
-                          <tr>
-                            <th>Data</th>
-                            <th>Horário</th>
-                            <th>Paciente</th>
-                            <th>Situação</th>
-                            <th>Valor</th>
-                            <th>Pagamento</th>
-                            <th>Ações</th>
-                          </tr>
-                        </thead>
+                        <thead><tr><th>Data</th><th>Horário</th><th>Paciente</th><th>Situação</th><th>Valor</th><th>Pagamento</th><th>Ações</th></tr></thead>
                         <tbody id="listaAgenda"></tbody>
                       </table>
                     </div>
@@ -2255,54 +2277,104 @@
                AGENDA
             ====================================================== */
 
-            function renderAgenda(){
+            let agendaSemanaInicio = inicioSemana(new Date());
+            let agendaVisual = "calendario";
 
-              const tbody =
-                document.getElementById("listaAgenda");
-
-              if(!sessoes.length){
-
-                tbody.innerHTML = `
-                  <tr>
-                    <td colspan="8">
-                      <div class="empty">
-                        Nenhuma sessão cadastrada.
-                      </div>
-                    </td>
-                  </tr>
-                `;
-
-                return;
-              }
-
-              tbody.innerHTML =
-                sessoes.map(s=>{
-
-                  const p =
-                    pacientes.find(
-                      p=>p.id===s.paciente_id
-                    );
-
-                  return `
-                    <tr>
-                      <td>${dataBR(s.data_sessao)}</td>
-                      <td>${s.horario || "-"}</td>
-                      <td>${escapeHTML(p?.nome_completo || "-")}</td>
-                      <td>${escapeHTML(s.comparecimento)}</td>
-                      <td>${moeda(s.valor)}</td>
-                      <td>${escapeHTML(s.situacao_pagamento)}</td>
-                      <td>
-                        <div class="actions">
-                          <button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button>
-                          <button class="mini-btn danger" onclick="excluirRegistro('sessoes','${s.id}','sessão')">Excluir</button>
-                        </div>
-                      </td>
-                    </tr>
-                  `;
-
-                }).join("");
+            function inicioSemana(data){
+              const d = new Date(data);
+              d.setHours(12,0,0,0);
+              const dia = d.getDay();
+              const ajuste = dia===0 ? -6 : 1-dia;
+              d.setDate(d.getDate()+ajuste);
+              return d;
             }
 
+            function dataISOlocal(data){
+              const y=data.getFullYear();
+              const m=String(data.getMonth()+1).padStart(2,"0");
+              const d=String(data.getDate()).padStart(2,"0");
+              return `${y}-${m}-${d}`;
+            }
+
+            function nomeMesAgenda(m){
+              return ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"][m];
+            }
+
+            function tituloSemanaAgenda(inicio){
+              const fim=new Date(inicio); fim.setDate(fim.getDate()+5);
+              if(inicio.getMonth()===fim.getMonth()) return `${inicio.getDate()}–${fim.getDate()} de ${nomeMesAgenda(inicio.getMonth())} de ${inicio.getFullYear()}`;
+              return `${inicio.getDate()} de ${nomeMesAgenda(inicio.getMonth())} – ${fim.getDate()} de ${nomeMesAgenda(fim.getMonth())} de ${fim.getFullYear()}`;
+            }
+
+            function mudarSemana(delta){
+              agendaSemanaInicio=new Date(agendaSemanaInicio);
+              agendaSemanaInicio.setDate(agendaSemanaInicio.getDate()+(delta*7));
+              renderAgenda();
+            }
+
+            function irSemanaHoje(){ agendaSemanaInicio=inicioSemana(new Date()); renderAgenda(); }
+
+            function trocarVisualAgenda(tipo){
+              agendaVisual=tipo;
+              document.getElementById("agendaCalendario")?.classList.toggle("hidden",tipo!=="calendario");
+              document.getElementById("agendaLista")?.classList.toggle("hidden",tipo!=="lista");
+              document.getElementById("btnAgendaCalendario")?.classList.toggle("active",tipo==="calendario");
+              document.getElementById("btnAgendaLista")?.classList.toggle("active",tipo==="lista");
+            }
+
+            function novaSessaoNoHorario(data,hora){
+              abrirNovaSessao();
+              const d=document.getElementById("sData"), h=document.getElementById("sHorario");
+              if(d) d.value=data;
+              if(h) h.value=hora;
+            }
+
+            function renderAgenda(){
+              const calendario=document.getElementById("agendaCalendario");
+              const tbody=document.getElementById("listaAgenda");
+              const periodo=document.getElementById("agendaPeriodo");
+              if(!calendario || !tbody) return;
+
+              if(periodo) periodo.textContent=tituloSemanaAgenda(agendaSemanaInicio);
+              const dias=[];
+              for(let i=0;i<6;i++){ const d=new Date(agendaSemanaInicio); d.setDate(d.getDate()+i); dias.push(d); }
+              const hoje=dataISOlocal(new Date());
+              const nomes=["SEG","TER","QUA","QUI","SEX","SÁB"];
+              const horas=Array.from({length:14},(_,i)=>i+7); // 07h às 20h
+
+              let grade=`<div class="agenda-week"><div class="agenda-corner"></div>`;
+              dias.forEach((d,i)=>{ const iso=dataISOlocal(d); grade+=`<div class="agenda-day-head ${iso===hoje?'today':''}"><span>${nomes[i]}</span><strong>${String(d.getDate()).padStart(2,'0')}</strong></div>`; });
+
+              horas.forEach(hora=>{
+                const hh=String(hora).padStart(2,"0")+":00";
+                grade+=`<div class="agenda-time">${hh}</div>`;
+                dias.forEach(d=>{
+                  const iso=dataISOlocal(d);
+                  const eventos=sessoes.filter(s=>s.data_sessao===iso && Number(String(s.horario||"00:00").slice(0,2))===hora)
+                    .sort((a,b)=>String(a.horario||"").localeCompare(String(b.horario||"")));
+                  grade+=`<div class="agenda-cell" onclick="if(event.target===this) novaSessaoNoHorario('${iso}','${hh}')">`;
+                  if(eventos.length){
+                    grade+=eventos.map(s=>{
+                      const p=pacientes.find(x=>x.id===s.paciente_id);
+                      const nome=(p?.nome_completo||"Paciente").split(" ");
+                      const curto=nome.length>1 ? `${nome[0]} ${nome[nome.length-1].charAt(0)}.` : nome[0];
+                      const classe=String(s.comparecimento||"agendado").toLowerCase();
+                      return `<div class="agenda-event ${classe}" onclick="event.stopPropagation();editarSessao('${s.id}')" title="${escapeHTML(p?.nome_completo||'Paciente')} - ${escapeHTML(s.comparecimento||'')}"><strong>${escapeHTML(curto)}</strong><div>${String(s.horario||'').slice(0,5)}</div><div class="event-meta">${escapeHTML(s.situacao_pagamento||'')}</div></div>`;
+                    }).join("");
+                  }
+                  grade+=`</div>`;
+                });
+              });
+              grade+=`</div>`;
+              calendario.innerHTML=grade;
+
+              const ordenadas=[...sessoes].sort((a,b)=>`${b.data_sessao||''} ${b.horario||''}`.localeCompare(`${a.data_sessao||''} ${a.horario||''}`));
+              tbody.innerHTML=ordenadas.length ? ordenadas.map(s=>{
+                const p=pacientes.find(p=>p.id===s.paciente_id);
+                return `<tr><td>${dataBR(s.data_sessao)}</td><td>${String(s.horario||'-').slice(0,5)}</td><td>${escapeHTML(p?.nome_completo||'-')}</td><td>${escapeHTML(s.comparecimento||'-')}</td><td>${moeda(s.valor)}</td><td>${escapeHTML(s.situacao_pagamento||'-')}</td><td><div class="actions"><button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button><button class="mini-btn danger" onclick="excluirRegistro('sessoes','${s.id}','sessão')">Excluir</button></div></td></tr>`;
+              }).join("") : `<tr><td colspan="7"><div class="empty">Nenhuma sessão cadastrada.</div></td></tr>`;
+              trocarVisualAgenda(agendaVisual);
+            }
 
             /* ======================================================
                PAGAMENTOS
