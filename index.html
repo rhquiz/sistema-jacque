@@ -604,6 +604,18 @@
       font-size:12px;
     }
 
+    .mini-btn.danger{
+      color:#A84F5A;
+      border-color:#F0C9CE;
+      background:#FFF7F8;
+    }
+
+    .mini-btn.status-btn{
+      color:var(--lilas-escuro);
+      border-color:#DCCEE7;
+      background:#FAF7FC;
+    }
+
     .whatsapp{
       background:#E5F4EC;
       color:#357A56;
@@ -756,9 +768,6 @@
       <span>▤</span><span>Documentos</span>
     </div>
 
-    <div class="nav-item" data-page="relatorios">
-      <span>◫</span><span>Relatórios</span>
-    </div>
 
     <div class="sidebar-bottom">
       <div class="nav-item" onclick="logout()">
@@ -920,6 +929,10 @@
             <button class="btn-secondary whatsapp" onclick="abrirWhatsPaciente()">
               WhatsApp
             </button>
+
+            <button id="btnStatusPaciente" class="btn-rose" onclick="alternarStatusPacienteAtual()">
+              Inativar paciente
+            </button>
           </div>
         </div>
 
@@ -976,6 +989,7 @@
                 <th>Situação</th>
                 <th>Valor</th>
                 <th>Pagamento</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody id="listaAgenda"></tbody>
@@ -1019,6 +1033,7 @@
                 <th>Valor</th>
                 <th>Forma</th>
                 <th>Status</th>
+                <th>Ações</th>
               </tr>
             </thead>
 
@@ -1047,10 +1062,13 @@
               <tr>
                 <th>Paciente</th>
                 <th>Sessões</th>
+                <th>Usadas</th>
+                <th>Restantes</th>
                 <th>Valor</th>
                 <th>Início</th>
                 <th>Validade</th>
                 <th>Status</th>
+                <th>Ações</th>
               </tr>
             </thead>
 
@@ -1076,33 +1094,6 @@
         </div>
       </section>
 
-
-      <!-- RELATÓRIOS -->
-      <section id="page-relatorios" class="page">
-        <div class="page-header">
-          <div>
-            <h1>Relatórios</h1>
-            <p>Indicadores e informações da clínica.</p>
-          </div>
-        </div>
-
-        <div class="cards">
-          <div class="card stat">
-            <small>Total de pacientes</small>
-            <h2 id="relPacientes">0</h2>
-          </div>
-
-          <div class="card stat rose">
-            <small>Total de sessões</small>
-            <h2 id="relSessoes">0</h2>
-          </div>
-
-          <div class="card stat green">
-            <small>Total recebido</small>
-            <h2 id="relRecebido">R$ 0,00</h2>
-          </div>
-        </div>
-      </section>
 
     </div>
   </main>
@@ -1392,7 +1383,6 @@ function renderTudo(){
   renderFinanceiro();
   renderPacotes();
   renderDashboard();
-  renderRelatorios();
 }
 
 
@@ -1477,11 +1467,12 @@ function renderPacientes(){
         </td>
 
         <td>
-          <button
-            class="mini-btn"
-            onclick="abrirFicha('${p.id}')">
-            Abrir ficha
-          </button>
+          <div class="actions">
+            <button class="mini-btn" onclick="abrirFicha('${p.id}')">Abrir ficha</button>
+            <button class="mini-btn status-btn" onclick="alternarStatusPaciente('${p.id}')">
+              ${p.status === "Ativo" ? "Inativar" : "Reativar"}
+            </button>
+          </div>
         </td>
 
       </tr>
@@ -1693,6 +1684,11 @@ async function abrirFicha(id){
     ]
     .filter(Boolean)
     .join(" • ");
+
+  const btnStatus = document.getElementById("btnStatusPaciente");
+  if(btnStatus){
+    btnStatus.textContent = pacienteAtual.status === "Ativo" ? "Inativar paciente" : "Reativar paciente";
+  }
 
   renderDadosPaciente();
 
@@ -2069,6 +2065,7 @@ async function renderSessoesPaciente(){
               <th>Comparecimento</th>
               <th>Valor</th>
               <th>Pagamento</th>
+              <th>Ações</th>
             </tr>
           </thead>
 
@@ -2088,6 +2085,12 @@ async function renderSessoesPaciente(){
                   }">
                     ${escapeHTML(s.situacao_pagamento)}
                   </span>
+                </td>
+                <td>
+                  <div class="actions">
+                    <button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button>
+                    <button class="mini-btn danger" onclick="excluirRegistro('sessoes','${s.id}','sessão')">Excluir</button>
+                  </div>
                 </td>
               </tr>
             `).join("")}
@@ -2116,7 +2119,7 @@ function renderAgenda(){
 
     tbody.innerHTML = `
       <tr>
-        <td colspan="6">
+        <td colspan="7">
           <div class="empty">
             Nenhuma sessão cadastrada.
           </div>
@@ -2143,6 +2146,12 @@ function renderAgenda(){
           <td>${escapeHTML(s.comparecimento)}</td>
           <td>${moeda(s.valor)}</td>
           <td>${escapeHTML(s.situacao_pagamento)}</td>
+          <td>
+            <div class="actions">
+              <button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button>
+              <button class="mini-btn danger" onclick="excluirRegistro('sessoes','${s.id}','sessão')">Excluir</button>
+            </div>
+          </td>
         </tr>
       `;
 
@@ -2317,7 +2326,7 @@ function renderFinanceiro(){
 
     tbody.innerHTML = `
       <tr>
-        <td colspan="6">
+        <td colspan="7">
           <div class="empty">
             Nenhum lançamento financeiro.
           </div>
@@ -2351,6 +2360,12 @@ function renderFinanceiro(){
             }">
               ${escapeHTML(pg.status)}
             </span>
+          </td>
+          <td>
+            <div class="actions">
+              <button class="mini-btn" onclick="editarPagamento('${pg.id}')">Editar</button>
+              <button class="mini-btn danger" onclick="excluirRegistro('pagamentos','${pg.id}','pagamento')">Excluir</button>
+            </div>
           </td>
         </tr>
       `;
@@ -2415,6 +2430,7 @@ async function renderFinanceiroPaciente(){
             <th>Descrição</th>
             <th>Valor</th>
             <th>Status</th>
+            <th>Ações</th>
           </tr>
         </thead>
 
@@ -2425,6 +2441,12 @@ async function renderFinanceiroPaciente(){
               <td>${escapeHTML(pg.descricao || "-")}</td>
               <td>${moeda(pg.valor)}</td>
               <td>${escapeHTML(pg.status)}</td>
+              <td>
+                <div class="actions">
+                  <button class="mini-btn" onclick="editarPagamento('${pg.id}')">Editar</button>
+                  <button class="mini-btn danger" onclick="excluirRegistro('pagamentos','${pg.id}','pagamento')">Excluir</button>
+                </div>
+              </td>
             </tr>
           `).join("")}
         </tbody>
@@ -2570,52 +2592,51 @@ async function salvarPacote(){
 }
 
 
+function sessoesUsadasPacote(pk){
+  return sessoes.filter(s=>{
+    if(s.paciente_id !== pk.paciente_id) return false;
+    if(s.comparecimento !== "Compareceu") return false;
+    if(pk.data_inicio && s.data_sessao < pk.data_inicio) return false;
+    if(pk.data_validade && s.data_sessao > pk.data_validade) return false;
+    return true;
+  }).length;
+}
+
 function renderPacotes(){
 
-  const tbody =
-    document.getElementById("listaPacotes");
+  const tbody = document.getElementById("listaPacotes");
 
   if(!pacotes.length){
-
     tbody.innerHTML = `
+      <tr><td colspan="9"><div class="empty">Nenhum pacote cadastrado.</div></td></tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = pacotes.map(pk=>{
+    const p = pacientes.find(p=>p.id===pk.paciente_id);
+    const usadas = sessoesUsadasPacote(pk);
+    const restantes = Math.max(Number(pk.quantidade_sessoes||0)-usadas,0);
+    return `
       <tr>
-        <td colspan="6">
-          <div class="empty">
-            Nenhum pacote cadastrado.
+        <td>${escapeHTML(p?.nome_completo || "-")}</td>
+        <td>${pk.quantidade_sessoes}</td>
+        <td>${usadas}</td>
+        <td><strong>${restantes}</strong></td>
+        <td>${moeda(pk.valor_total)}</td>
+        <td>${dataBR(pk.data_inicio)}</td>
+        <td>${dataBR(pk.data_validade)}</td>
+        <td><span class="badge badge-lilas">${escapeHTML(pk.status)}</span></td>
+        <td>
+          <div class="actions">
+            <button class="mini-btn" onclick="editarPacote('${pk.id}')">Editar</button>
+            <button class="mini-btn danger" onclick="excluirRegistro('pacotes','${pk.id}','pacote')">Excluir</button>
           </div>
         </td>
       </tr>
     `;
-
-    return;
-  }
-
-  tbody.innerHTML =
-    pacotes.map(pk=>{
-
-      const p =
-        pacientes.find(
-          p=>p.id===pk.paciente_id
-        );
-
-      return `
-        <tr>
-          <td>${escapeHTML(p?.nome_completo || "-")}</td>
-          <td>${pk.quantidade_sessoes}</td>
-          <td>${moeda(pk.valor_total)}</td>
-          <td>${dataBR(pk.data_inicio)}</td>
-          <td>${dataBR(pk.data_validade)}</td>
-          <td>
-            <span class="badge badge-lilas">
-              ${escapeHTML(pk.status)}
-            </span>
-          </td>
-        </tr>
-      `;
-
-    }).join("");
+  }).join("");
 }
-
 
 async function renderPacotePaciente(){
 
@@ -2641,9 +2662,8 @@ async function renderPacotePaciente(){
 
         <div class="card" style="margin-bottom:12px">
 
-          <strong>
-            ${pk.quantidade_sessoes} sessões
-          </strong>
+          <strong>${pk.quantidade_sessoes} sessões</strong>
+          <p style="margin-top:8px">Usadas: ${sessoesUsadasPacote(pk)} • Restantes: ${Math.max(Number(pk.quantidade_sessoes||0)-sessoesUsadasPacote(pk),0)}</p>
 
           <p style="margin-top:8px">
             Valor: ${moeda(pk.valor_total)}
@@ -2659,9 +2679,11 @@ async function renderPacotePaciente(){
 
           <br>
 
-          <span class="badge badge-lilas">
-            ${escapeHTML(pk.status)}
-          </span>
+          <span class="badge badge-lilas">${escapeHTML(pk.status)}</span>
+          <div class="actions" style="margin-top:12px">
+            <button class="mini-btn" onclick="editarPacote('${pk.id}')">Editar</button>
+            <button class="mini-btn danger" onclick="excluirRegistro('pacotes','${pk.id}','pacote')">Excluir</button>
+          </div>
 
         </div>
 
@@ -2720,9 +2742,11 @@ async function renderEvolucoes(){
             ${dataBR(ev.data_evolucao)}
           </strong>
 
-          <p style="margin-top:10px;white-space:pre-wrap">
-            ${escapeHTML(ev.registro)}
-          </p>
+          <p style="margin-top:10px;white-space:pre-wrap">${escapeHTML(ev.registro)}</p>
+          <div class="actions" style="margin-top:12px">
+            <button class="mini-btn" onclick="editarEvolucao('${ev.id}', ${JSON.stringify(ev.registro)})">Editar</button>
+            <button class="mini-btn danger" onclick="excluirRegistro('evolucoes','${ev.id}','evolução')">Excluir</button>
+          </div>
 
         </div>
 
@@ -2905,31 +2929,6 @@ document
 
 
 /* ======================================================
-   RELATÓRIOS
-====================================================== */
-
-function renderRelatorios(){
-
-  document.getElementById("relPacientes").textContent =
-    pacientes.length;
-
-  document.getElementById("relSessoes").textContent =
-    sessoes.length;
-
-  const recebido =
-    pagamentos
-      .filter(p=>p.status==="Pago")
-      .reduce(
-        (s,p)=>s+Number(p.valor||0),
-        0
-      );
-
-  document.getElementById("relRecebido").textContent =
-    moeda(recebido);
-}
-
-
-/* ======================================================
    WHATSAPP
 ====================================================== */
 
@@ -3096,6 +3095,145 @@ async function salvarEdicaoPaciente(){
   abrirFicha(pacienteAtual.id);
 }
 
+
+/* ======================================================
+   AÇÕES: STATUS, EDITAR E EXCLUIR
+====================================================== */
+
+async function alternarStatusPaciente(id){
+  const p = pacientes.find(x=>x.id===id);
+  if(!p) return;
+  const novo = p.status === "Ativo" ? "Inativo" : "Ativo";
+  const acao = novo === "Inativo" ? "inativar" : "reativar";
+  if(!confirm(`Deseja realmente ${acao} ${p.nome_completo}?`)) return;
+  const {error} = await sb.from("pacientes").update({status:novo, atualizado_em:new Date().toISOString()}).eq("id",id);
+  if(error){ alert(error.message); return; }
+  await carregarPacientes();
+  renderTudo();
+  if(pacienteAtual?.id===id){ pacienteAtual=pacientes.find(x=>x.id===id); abrirFicha(id); }
+}
+
+function alternarStatusPacienteAtual(){
+  if(pacienteAtual) alternarStatusPaciente(pacienteAtual.id);
+}
+
+async function excluirRegistro(tabela,id,nome){
+  if(!confirm(`Deseja realmente excluir este ${nome}? Esta ação não pode ser desfeita.`)) return;
+  const {error}=await sb.from(tabela).delete().eq("id",id);
+  if(error){ alert("Não foi possível excluir: "+error.message); return; }
+  if(tabela==="sessoes") await carregarSessoes();
+  if(tabela==="pagamentos") await carregarPagamentos();
+  if(tabela==="pacotes") await carregarPacotes();
+  renderTudo();
+  if(pacienteAtual){
+    if(tabela==="sessoes") renderSessoesPaciente();
+    if(tabela==="pagamentos") renderFinanceiroPaciente();
+    if(tabela==="pacotes") renderPacotePaciente();
+    if(tabela==="evolucoes") renderEvolucoes();
+  }
+}
+
+function editarSessao(id){
+  const s=sessoes.find(x=>x.id===id); if(!s) return;
+  abrirNovaSessao();
+  document.getElementById("modalTitulo").textContent="Editar sessão";
+  document.getElementById("sPaciente").value=s.paciente_id;
+  document.getElementById("sData").value=s.data_sessao||"";
+  document.getElementById("sHorario").value=(s.horario||"").slice(0,5);
+  document.getElementById("sValor").value=s.valor||"";
+  document.getElementById("sComparecimento").value=s.comparecimento||"Agendado";
+  document.getElementById("sPagamento").value=s.situacao_pagamento||"Pendente";
+  document.getElementById("sObs").value=s.observacoes||"";
+  document.getElementById("modalSalvar").onclick=()=>salvarEdicaoSessao(id);
+}
+
+async function salvarEdicaoSessao(id){
+  const registro={
+    paciente_id:document.getElementById("sPaciente").value,
+    data_sessao:document.getElementById("sData").value,
+    horario:document.getElementById("sHorario").value||null,
+    valor:Number(document.getElementById("sValor").value)||0,
+    comparecimento:document.getElementById("sComparecimento").value,
+    situacao_pagamento:document.getElementById("sPagamento").value,
+    observacoes:document.getElementById("sObs").value||null
+  };
+  if(!registro.paciente_id||!registro.data_sessao){alert("Selecione o paciente e a data.");return;}
+  const {error}=await sb.from("sessoes").update(registro).eq("id",id);
+  if(error){alert(error.message);return;}
+  fecharModal(); await carregarSessoes(); renderTudo(); if(pacienteAtual) renderSessoesPaciente();
+}
+
+function editarPagamento(id){
+  const pg=pagamentos.find(x=>x.id===id); if(!pg) return;
+  abrirPagamento();
+  document.getElementById("modalTitulo").textContent="Editar pagamento";
+  document.getElementById("pgPaciente").value=pg.paciente_id;
+  document.getElementById("pgData").value=pg.data_pagamento||"";
+  document.getElementById("pgValor").value=pg.valor||"";
+  document.getElementById("pgForma").value=pg.forma_pagamento||"Pix";
+  document.getElementById("pgStatus").value=pg.status||"Pago";
+  document.getElementById("pgDescricao").value=pg.descricao||"";
+  document.getElementById("modalSalvar").onclick=()=>salvarEdicaoPagamento(id);
+}
+
+async function salvarEdicaoPagamento(id){
+  const registro={
+    paciente_id:document.getElementById("pgPaciente").value,
+    data_pagamento:document.getElementById("pgData").value||new Date().toISOString().slice(0,10),
+    valor:Number(document.getElementById("pgValor").value)||0,
+    forma_pagamento:document.getElementById("pgForma").value,
+    status:document.getElementById("pgStatus").value,
+    descricao:document.getElementById("pgDescricao").value||null
+  };
+  if(!registro.paciente_id||!registro.valor){alert("Informe paciente e valor.");return;}
+  const {error}=await sb.from("pagamentos").update(registro).eq("id",id);
+  if(error){alert(error.message);return;}
+  fecharModal(); await carregarPagamentos(); renderTudo(); if(pacienteAtual) renderFinanceiroPaciente();
+}
+
+function editarPacote(id){
+  const pk=pacotes.find(x=>x.id===id); if(!pk) return;
+  abrirNovoPacote();
+  document.getElementById("modalTitulo").textContent="Editar pacote";
+  document.getElementById("pkPaciente").value=pk.paciente_id;
+  document.getElementById("pkQtd").value=pk.quantidade_sessoes||"";
+  document.getElementById("pkValor").value=pk.valor_total||"";
+  document.getElementById("pkInicio").value=pk.data_inicio||"";
+  document.getElementById("pkValidade").value=pk.data_validade||"";
+  document.getElementById("pkObs").value=pk.observacoes||"";
+  document.getElementById("modalSalvar").onclick=()=>salvarEdicaoPacote(id);
+}
+
+async function salvarEdicaoPacote(id){
+  const registro={
+    paciente_id:document.getElementById("pkPaciente").value,
+    quantidade_sessoes:Number(document.getElementById("pkQtd").value)||0,
+    valor_total:Number(document.getElementById("pkValor").value)||0,
+    data_inicio:document.getElementById("pkInicio").value||new Date().toISOString().slice(0,10),
+    data_validade:document.getElementById("pkValidade").value||null,
+    observacoes:document.getElementById("pkObs").value||null
+  };
+  if(!registro.paciente_id||!registro.quantidade_sessoes){alert("Informe paciente e quantidade de sessões.");return;}
+  const {error}=await sb.from("pacotes").update(registro).eq("id",id);
+  if(error){alert(error.message);return;}
+  fecharModal(); await carregarPacotes(); renderTudo(); if(pacienteAtual) renderPacotePaciente();
+}
+
+function editarEvolucao(id,registroAtual){
+  document.getElementById("modalTitulo").textContent="Editar evolução";
+  document.getElementById("modalConteudo").innerHTML=`<div class="field"><label>Registro da evolução</label><textarea id="evEditar"></textarea></div>`;
+  document.getElementById("evEditar").value=registroAtual||"";
+  document.getElementById("modalSalvar").onclick=()=>salvarEdicaoEvolucao(id);
+  abrirModal();
+}
+
+async function salvarEdicaoEvolucao(id){
+  const registro=document.getElementById("evEditar").value.trim();
+  if(!registro){alert("Digite a evolução.");return;}
+  const {error}=await sb.from("evolucoes").update({registro}).eq("id",id);
+  if(error){alert(error.message);return;}
+  fecharModal(); renderEvolucoes();
+}
 
 /* ======================================================
    BUSCA GLOBAL
