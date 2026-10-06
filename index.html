@@ -506,6 +506,16 @@
                   gap:10px;
                 }
 
+                .modal-footer .btn-delete-session{
+                  margin-right:auto;
+                  border:1px solid #F0C9CE;
+                  background:#FFF7F8;
+                  color:#A84F5A;
+                  padding:12px 18px;
+                  border-radius:11px;
+                  font-weight:700;
+                }
+
                 .close{
                   border:0;
                   background:transparent;
@@ -1353,38 +1363,111 @@
                 alert("Não foi possível carregar os dados da conta.");
                 return;
               }
+
               document.getElementById("modalTitulo").textContent = "Minha conta";
               document.getElementById("modalConteudo").innerHTML = `
                 <div class="form-grid">
+
                   <div class="field full">
-                    <label>E-mail de acesso</label>
+                    <label>E-mail atual</label>
                     <input value="${escapeHTML(user.email || "")}" disabled>
                   </div>
+
+                  <div class="field">
+                    <label>Novo e-mail de acesso</label>
+                    <input id="contaNovoEmail" type="email" autocomplete="email" placeholder="Digite o novo e-mail">
+                  </div>
+
+                  <div class="field">
+                    <label>Confirmar novo e-mail</label>
+                    <input id="contaConfirmarEmail" type="email" autocomplete="email" placeholder="Digite novamente">
+                  </div>
+
+                  <div class="field full">
+                    <button type="button" class="btn-secondary" onclick="alterarEmailConta()">
+                      Alterar e-mail de acesso
+                    </button>
+                    <div style="margin-top:9px;color:var(--texto-claro);font-size:12px;line-height:1.45;">
+                      Dependendo da configuração de segurança, o Supabase poderá enviar uma confirmação por e-mail antes da alteração ser concluída.
+                    </div>
+                  </div>
+
+                  <div class="field full">
+                    <div style="height:1px;background:var(--borda);margin:3px 0 5px;"></div>
+                  </div>
+
                   <div class="field full">
                     <div style="padding:14px;border-radius:12px;background:var(--lilas-claro);color:var(--texto);font-size:13px;line-height:1.5;">
                       🔒 Sua senha é pessoal e não fica visível no sistema. Ao criar uma nova senha, a senha anterior deixa de funcionar.
                     </div>
                   </div>
+
                   <div class="field">
                     <label>Nova senha *</label>
                     <input id="contaNovaSenha" type="password" minlength="6" autocomplete="new-password" placeholder="Digite a nova senha">
                   </div>
+
                   <div class="field">
                     <label>Confirmar nova senha *</label>
                     <input id="contaConfirmarSenha" type="password" minlength="6" autocomplete="new-password" placeholder="Digite novamente">
                   </div>
+
                   <div class="field full">
                     <label style="display:flex;align-items:center;gap:8px;font-weight:600">
                       <input id="contaMostrarSenha" type="checkbox" style="width:auto" onchange="alternarVisualizacaoSenha()">
                       Mostrar senha enquanto digito
                     </label>
                   </div>
+
                 </div>`;
+
               const botao = document.getElementById("modalSalvar");
               botao.disabled = false;
               botao.textContent = "Alterar senha";
               botao.onclick = alterarSenhaConta;
               abrirModal();
+            }
+
+            async function alterarEmailConta(){
+              const novoEmail = (document.getElementById("contaNovoEmail")?.value || "").trim().toLowerCase();
+              const confirmarEmail = (document.getElementById("contaConfirmarEmail")?.value || "").trim().toLowerCase();
+
+              if(!novoEmail){
+                alert("Digite o novo e-mail de acesso.");
+                return;
+              }
+
+              if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(novoEmail)){
+                alert("Digite um e-mail válido.");
+                return;
+              }
+
+              if(novoEmail !== confirmarEmail){
+                alert("Os e-mails não são iguais. Digite novamente.");
+                return;
+              }
+
+              const { data:{ user } } = await sb.auth.getUser();
+              if((user?.email || "").toLowerCase() === novoEmail){
+                alert("Esse já é o e-mail atual da conta.");
+                return;
+              }
+
+              const { data, error } = await sb.auth.updateUser({ email:novoEmail });
+
+              if(error){
+                alert("Não foi possível solicitar a alteração do e-mail: " + error.message);
+                return;
+              }
+
+              document.getElementById("contaNovoEmail").value = "";
+              document.getElementById("contaConfirmarEmail").value = "";
+
+              if((data?.user?.email || "").toLowerCase() === novoEmail){
+                alert("E-mail de acesso alterado com sucesso.");
+              }else{
+                alert("Solicitação enviada. Verifique o e-mail de confirmação para concluir a alteração do endereço de acesso.");
+              }
             }
 
             function alternarVisualizacaoSenha(){
@@ -1398,27 +1481,35 @@
             async function alterarSenhaConta(){
               const novaSenha = document.getElementById("contaNovaSenha")?.value || "";
               const confirmarSenha = document.getElementById("contaConfirmarSenha")?.value || "";
+
               if(novaSenha.length < 6){
                 alert("A nova senha precisa ter pelo menos 6 caracteres.");
                 return;
               }
+
               if(novaSenha !== confirmarSenha){
                 alert("As senhas não são iguais. Digite novamente.");
                 return;
               }
+
               const botao = document.getElementById("modalSalvar");
               botao.disabled = true;
               botao.textContent = "Alterando...";
+
               const { error } = await sb.auth.updateUser({ password:novaSenha });
+
               botao.disabled = false;
               botao.textContent = "Alterar senha";
+
               if(error){
                 alert("Não foi possível alterar a senha: " + error.message);
                 return;
               }
+
               fecharModal();
               alert("Senha alterada com sucesso. A nova senha já está valendo.");
             }
+
 
             /* ======================================================
                NAVEGAÇÃO
@@ -2124,6 +2215,26 @@
                     <textarea id="sObs"></textarea>
                   </div>
 
+                  <div id="blocoRecorrencia" class="field full">
+                    <div style="padding:15px;border:1px solid var(--borda);border-radius:13px;background:#FCFAFD;">
+                      <label>Repetir atendimento</label>
+                      <div class="form-grid" style="margin-top:10px;">
+                        <div class="field" style="margin-bottom:0;">
+                          <select id="sRepeticao" onchange="atualizarRepeticaoSessao()">
+                            <option value="nao">Não repetir</option>
+                            <option value="semanal">Toda semana</option>
+                            <option value="quinzenal">A cada 15 dias</option>
+                            <option value="mensal">Todo mês</option>
+                          </select>
+                        </div>
+                        <div id="campoRepetirAte" class="field hidden" style="margin-bottom:0;">
+                          <label>Repetir até</label>
+                          <input id="sRepetirAte" type="date">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               `;
 
@@ -2142,65 +2253,90 @@
             }
 
 
+            function atualizarRepeticaoSessao(){
+              const tipo = document.getElementById("sRepeticao")?.value || "nao";
+              document.getElementById("campoRepetirAte")?.classList.toggle("hidden", tipo === "nao");
+            }
+
+            function proximaDataRecorrente(dataISO,tipo){
+              const [ano,mes,dia] = dataISO.split("-").map(Number);
+              const d = new Date(ano,mes-1,dia,12,0,0,0);
+
+              if(tipo === "semanal") d.setDate(d.getDate()+7);
+              if(tipo === "quinzenal") d.setDate(d.getDate()+14);
+              if(tipo === "mensal") d.setMonth(d.getMonth()+1);
+
+              return dataISOlocal(d);
+            }
+
             async function salvarSessao(){
-
-              const pacienteId =
-                document.getElementById("sPaciente").value;
-
-              const data =
-                document.getElementById("sData").value;
+              const pacienteId = document.getElementById("sPaciente").value;
+              const data = document.getElementById("sData").value;
 
               if(!pacienteId || !data){
-
                 alert("Selecione o paciente e a data.");
-
                 return;
               }
 
-              const {error} =
-                await sb
-                  .from("sessoes")
-                  .insert({
+              const repeticao = document.getElementById("sRepeticao")?.value || "nao";
+              const repetirAte = document.getElementById("sRepetirAte")?.value || "";
 
-                    paciente_id:pacienteId,
+              if(repeticao !== "nao" && !repetirAte){
+                alert("Informe até quando o atendimento deve se repetir.");
+                return;
+              }
 
-                    data_sessao:data,
+              if(repeticao !== "nao" && repetirAte < data){
+                alert("A data final da repetição não pode ser anterior à primeira sessão.");
+                return;
+              }
 
-                    horario:
-                      document.getElementById("sHorario").value
-                      || null,
+              const base = {
+                paciente_id:pacienteId,
+                horario:document.getElementById("sHorario").value || null,
+                valor:Number(document.getElementById("sValor").value) || 0,
+                comparecimento:document.getElementById("sComparecimento").value,
+                situacao_pagamento:document.getElementById("sPagamento").value,
+                observacoes:document.getElementById("sObs").value || null
+              };
 
-                    valor:
-                      Number(
-                        document.getElementById("sValor").value
-                      ) || 0,
+              const registros = [];
+              let dataAtual = data;
+              let seguranca = 0;
 
-                    comparecimento:
-                      document.getElementById("sComparecimento").value,
+              while(true){
+                registros.push({...base,data_sessao:dataAtual});
 
-                    situacao_pagamento:
-                      document.getElementById("sPagamento").value,
+                if(repeticao === "nao") break;
 
-                    observacoes:
-                      document.getElementById("sObs").value
-                      || null
-                  });
+                const proxima = proximaDataRecorrente(dataAtual,repeticao);
+                if(proxima > repetirAte) break;
+
+                dataAtual = proxima;
+                seguranca++;
+
+                if(seguranca > 150){
+                  alert("O período de repetição é muito longo. Escolha uma data final menor.");
+                  return;
+                }
+              }
+
+              const {error} = await sb.from("sessoes").insert(registros);
 
               if(error){
-
                 alert(error.message);
-
                 return;
               }
 
               fecharModal();
-
               await carregarSessoes();
-
               renderTudo();
 
-              if(pacienteAtual)
-                renderSessoesPaciente();
+              if(pacienteAtual) renderSessoesPaciente();
+
+              if(registros.length > 1){
+                alert(`${registros.length} sessões foram agendadas com sucesso.`);
+              }
             }
 
 
@@ -3260,8 +3396,11 @@
             }
 
             function editarSessao(id){
-              const s=sessoes.find(x=>x.id===id); if(!s) return;
+              const s=sessoes.find(x=>x.id===id);
+              if(!s) return;
+
               abrirNovaSessao();
+
               document.getElementById("modalTitulo").textContent="Editar sessão";
               document.getElementById("sPaciente").value=s.paciente_id;
               document.getElementById("sData").value=s.data_sessao||"";
@@ -3270,7 +3409,50 @@
               document.getElementById("sComparecimento").value=s.comparecimento||"Agendado";
               document.getElementById("sPagamento").value=s.situacao_pagamento||"Pendente";
               document.getElementById("sObs").value=s.observacoes||"";
+
+              const recorrencia = document.getElementById("blocoRecorrencia");
+              if(recorrencia) recorrencia.classList.add("hidden");
+
               document.getElementById("modalSalvar").onclick=()=>salvarEdicaoSessao(id);
+
+              const footer = document.querySelector("#modal .modal-footer");
+              if(footer && !document.getElementById("btnExcluirSessaoModal")){
+                const btn = document.createElement("button");
+                btn.id = "btnExcluirSessaoModal";
+                btn.type = "button";
+                btn.className = "btn-delete-session";
+                btn.innerHTML = "🗑 Excluir sessão";
+                btn.onclick = ()=>excluirSessaoPeloModal(id);
+                footer.prepend(btn);
+              }
+            }
+
+            async function excluirSessaoPeloModal(id){
+              const s = sessoes.find(x=>x.id===id);
+              if(!s) return;
+
+              const p = pacientes.find(x=>x.id===s.paciente_id);
+              const nome = p?.nome_completo || "este paciente";
+              const horario = (s.horario || "").slice(0,5) || "sem horário";
+
+              if(!confirm(`Excluir esta sessão?\n\n${nome}\n${dataBR(s.data_sessao)} às ${horario}\n\nEsta ação não pode ser desfeita.`)){
+                return;
+              }
+
+              const {error} = await sb.from("sessoes").delete().eq("id",id);
+
+              if(error){
+                alert("Não foi possível excluir a sessão: " + error.message);
+                return;
+              }
+
+              fecharModal();
+              await carregarSessoes();
+              renderTudo();
+
+              if(pacienteAtual) renderSessoesPaciente();
+
+              alert("Sessão excluída com sucesso.");
             }
 
             async function salvarEdicaoSessao(id){
@@ -3433,6 +3615,8 @@
                 botao.textContent = "Salvar";
                 botao.disabled = false;
               }
+
+              document.getElementById("btnExcluirSessaoModal")?.remove();
             }
 
 
