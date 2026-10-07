@@ -1729,6 +1729,9 @@
                         <button class="mini-btn status-btn" onclick="alternarStatusPaciente('${p.id}')">
                           ${p.status === "Ativo" ? "Inativar" : "Reativar"}
                         </button>
+                        <button class="mini-btn danger" onclick="excluirPaciente('${p.id}')">
+                          Excluir
+                        </button>
                       </div>
                     </td>
 
@@ -3377,6 +3380,70 @@
 
             function alternarStatusPacienteAtual(){
               if(pacienteAtual) alternarStatusPaciente(pacienteAtual.id);
+            }
+
+            async function excluirPaciente(id){
+              const p = pacientes.find(x=>x.id===id);
+              if(!p) return;
+
+              const nome = p.nome_completo || "este paciente";
+
+              const confirmar = confirm(
+                `Excluir paciente?\n\nTem certeza que deseja excluir ${nome}?\n\n` +
+                `Também serão excluídos os registros vinculados a este cadastro, como sessões, pagamentos, pacotes, anamnese, evoluções e documentos.\n\n` +
+                `Esta ação não pode ser desfeita.`
+              );
+
+              if(!confirmar) return;
+
+              const tabelasVinculadas = [
+                "documentos",
+                "evolucoes",
+                "anamneses",
+                "pagamentos",
+                "pacotes",
+                "sessoes"
+              ];
+
+              for(const tabela of tabelasVinculadas){
+                const { error } = await sb
+                  .from(tabela)
+                  .delete()
+                  .eq("paciente_id", id);
+
+                if(error){
+                  alert(
+                    `Não foi possível excluir o paciente.\n\n` +
+                    `Erro ao excluir dados da tabela "${tabela}": ${error.message}`
+                  );
+                  return;
+                }
+              }
+
+              const { error } = await sb
+                .from("pacientes")
+                .delete()
+                .eq("id", id);
+
+              if(error){
+                alert("Não foi possível excluir o paciente: " + error.message);
+                return;
+              }
+
+              if(pacienteAtual?.id === id){
+                pacienteAtual = null;
+                showPage("pacientes");
+              }
+
+              await Promise.all([
+                carregarPacientes(),
+                carregarSessoes(),
+                carregarPagamentos(),
+                carregarPacotes()
+              ]);
+
+              renderTudo();
+              alert(`${nome} foi excluído(a) com sucesso.`);
             }
 
             async function excluirRegistro(tabela,id,nome){
