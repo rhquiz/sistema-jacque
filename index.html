@@ -463,6 +463,25 @@
                   color:#9B742E;
                 }
 
+
+                /* ÁREAS PROTEGIDAS */
+                .protected-note{
+                  padding:14px;
+                  border-radius:12px;
+                  background:var(--lilas-claro);
+                  font-size:13px;
+                  line-height:1.5;
+                  margin-bottom:18px;
+                }
+                .protected-lock{
+                  display:inline-flex;
+                  align-items:center;
+                  gap:6px;
+                  font-size:11px;
+                  color:var(--lilas-escuro);
+                  margin-left:auto;
+                }
+
                 /* MODAL */
 
                 .modal{
@@ -794,7 +813,7 @@
                 </div>
 
                 <div class="nav-item" data-page="pacientes">
-                  <span>♙</span><span>Pacientes</span>
+                  <span>♙</span><span>Pacientes</span><span class="protected-lock">🔒</span>
                 </div>
 
                 <div class="nav-item" data-page="agenda">
@@ -802,7 +821,7 @@
                 </div>
 
                 <div class="nav-item" data-page="financeiro">
-                  <span>◇</span><span>Financeiro</span>
+                  <span>◇</span><span>Financeiro</span><span class="protected-lock">🔒</span>
                 </div>
 
                 <div class="nav-item" data-page="pacotes">
@@ -1236,6 +1255,11 @@
             let pacotes = [];
             let pacienteAtual = null;
 
+            let areasProtegidasLiberadas = false;
+            let paginaProtegidaPendente = null;
+            let navProtegidaPendente = null;
+
+
 
             /* ======================================================
                UTILIDADES
@@ -1347,6 +1371,10 @@
 
             async function logout(){
 
+              areasProtegidasLiberadas = false;
+              paginaProtegidaPendente = null;
+              navProtegidaPendente = null;
+
               await sb.auth.signOut();
 
               location.reload();
@@ -1417,6 +1445,42 @@
                       <input id="contaMostrarSenha" type="checkbox" style="width:auto" onchange="alternarVisualizacaoSenha()">
                       Mostrar senha enquanto digito
                     </label>
+                  </div>
+
+                  <div class="field full">
+                    <div style="height:1px;background:var(--borda);margin:8px 0 5px;"></div>
+                  </div>
+
+                  <div class="field full">
+                    <h3 style="margin-bottom:8px;">🔒 Senha das áreas protegidas</h3>
+                    <div class="protected-note">
+                      Esta senha protege <strong>Pacientes</strong> e <strong>Financeiro</strong>.
+                      Ela é criada pela própria Jacque e não fica gravada em texto no código.
+                      Para redefini-la, é necessário estar logada na conta.
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label>Nova senha das áreas protegidas</label>
+                    <input id="contaNovaSenhaAreas" type="password" minlength="6" autocomplete="new-password" placeholder="Mínimo de 6 caracteres">
+                  </div>
+
+                  <div class="field">
+                    <label>Confirmar senha das áreas protegidas</label>
+                    <input id="contaConfirmarSenhaAreas" type="password" minlength="6" autocomplete="new-password" placeholder="Digite novamente">
+                  </div>
+
+                  <div class="field full">
+                    <label style="display:flex;align-items:center;gap:8px;font-weight:600">
+                      <input id="contaMostrarSenhaAreas" type="checkbox" style="width:auto" onchange="alternarVisualizacaoSenhaAreas()">
+                      Mostrar senha enquanto digito
+                    </label>
+                  </div>
+
+                  <div class="field full">
+                    <button type="button" class="btn-secondary" onclick="salvarSenhaAreasProtegidas()">
+                      Criar / alterar senha das áreas protegidas
+                    </button>
                   </div>
 
                 </div>`;
@@ -1511,6 +1575,144 @@
             }
 
 
+
+            /* ======================================================
+               ÁREAS PROTEGIDAS - PACIENTES E FINANCEIRO
+               A senha é armazenada como hash SHA-256 nos metadados
+               privados da própria conta autenticada.
+            ====================================================== */
+
+            async function hashSenhaArea(valor){
+              const dados = new TextEncoder().encode(valor);
+              const hash = await crypto.subtle.digest("SHA-256", dados);
+              return Array.from(new Uint8Array(hash))
+                .map(b=>b.toString(16).padStart(2,"0"))
+                .join("");
+            }
+
+            async function obterHashSenhaAreas(){
+              const { data:{ user }, error } = await sb.auth.getUser();
+              if(error || !user) return null;
+              return user.user_metadata?.areas_protegidas_hash || null;
+            }
+
+            function alternarVisualizacaoSenhaAreas(){
+              const mostrar = document.getElementById("contaMostrarSenhaAreas")?.checked;
+              const a = document.getElementById("contaNovaSenhaAreas");
+              const b = document.getElementById("contaConfirmarSenhaAreas");
+              if(a) a.type = mostrar ? "text" : "password";
+              if(b) b.type = mostrar ? "text" : "password";
+            }
+
+            async function salvarSenhaAreasProtegidas(){
+              const senha = document.getElementById("contaNovaSenhaAreas")?.value || "";
+              const confirmar = document.getElementById("contaConfirmarSenhaAreas")?.value || "";
+
+              if(senha.length < 6){
+                alert("A senha das áreas protegidas precisa ter pelo menos 6 caracteres.");
+                return;
+              }
+
+              if(senha !== confirmar){
+                alert("As senhas das áreas protegidas não são iguais.");
+                return;
+              }
+
+              const hash = await hashSenhaArea(senha);
+              const { data:{ user } } = await sb.auth.getUser();
+              const metadataAtual = user?.user_metadata || {};
+
+              const { error } = await sb.auth.updateUser({
+                data:{
+                  ...metadataAtual,
+                  areas_protegidas_hash:hash
+                }
+              });
+
+              if(error){
+                alert("Não foi possível salvar a senha das áreas protegidas: " + error.message);
+                return;
+              }
+
+              document.getElementById("contaNovaSenhaAreas").value = "";
+              document.getElementById("contaConfirmarSenhaAreas").value = "";
+              areasProtegidasLiberadas = true;
+              alert("Senha das áreas protegidas criada/alterada com sucesso. Pacientes e Financeiro estão liberados nesta sessão.");
+            }
+
+            async function solicitarAcessoProtegido(pagina, navItem){
+              paginaProtegidaPendente = pagina;
+              navProtegidaPendente = navItem || null;
+
+              const hashSalvo = await obterHashSenhaAreas();
+
+              if(!hashSalvo){
+                alert("Ainda não existe uma senha para as áreas protegidas. Vá em Minha conta e crie a senha primeiro.");
+                paginaProtegidaPendente = null;
+                navProtegidaPendente = null;
+                return;
+              }
+
+              document.getElementById("modalTitulo").textContent = "Área protegida 🔒";
+              document.getElementById("modalConteudo").innerHTML = `
+                <div class="protected-note">
+                  Digite a senha das áreas protegidas para acessar
+                  <strong>${pagina === "financeiro" ? "Financeiro" : "Pacientes"}</strong>.
+                </div>
+                <div class="field">
+                  <label>Senha</label>
+                  <input id="senhaAreaProtegida" type="password" autocomplete="current-password"
+                    placeholder="Digite a senha"
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();validarSenhaAreaProtegida();}">
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;font-weight:600">
+                  <input id="mostrarSenhaAreaProtegida" type="checkbox" style="width:auto"
+                    onchange="document.getElementById('senhaAreaProtegida').type=this.checked?'text':'password'">
+                  Mostrar senha
+                </label>`;
+
+              const botao = document.getElementById("modalSalvar");
+              botao.disabled = false;
+              botao.textContent = "Acessar";
+              botao.onclick = validarSenhaAreaProtegida;
+              abrirModal();
+
+              setTimeout(()=>document.getElementById("senhaAreaProtegida")?.focus(),100);
+            }
+
+            async function validarSenhaAreaProtegida(){
+              const senha = document.getElementById("senhaAreaProtegida")?.value || "";
+              if(!senha){
+                alert("Digite a senha das áreas protegidas.");
+                return;
+              }
+
+              const [digitado, salvo] = await Promise.all([
+                hashSenhaArea(senha),
+                obterHashSenhaAreas()
+              ]);
+
+              if(!salvo || digitado !== salvo){
+                alert("Senha incorreta.");
+                const campo = document.getElementById("senhaAreaProtegida");
+                if(campo){ campo.value=""; campo.focus(); }
+                return;
+              }
+
+              areasProtegidasLiberadas = true;
+              const pagina = paginaProtegidaPendente;
+              const navItem = navProtegidaPendente;
+              paginaProtegidaPendente = null;
+              navProtegidaPendente = null;
+
+              fecharModal();
+              if(pagina){
+                showPage(pagina);
+                document.querySelectorAll(".nav-item[data-page]").forEach(n=>n.classList.remove("active"));
+                if(navItem) navItem.classList.add("active");
+              }
+            }
+
             /* ======================================================
                NAVEGAÇÃO
             ====================================================== */
@@ -1519,9 +1721,16 @@
             .querySelectorAll(".nav-item[data-page]")
             .forEach(item=>{
 
-              item.addEventListener("click",()=>{
+              item.addEventListener("click",async ()=>{
 
-                showPage(item.dataset.page);
+                const pagina = item.dataset.page;
+
+                if((pagina === "pacientes" || pagina === "financeiro") && !areasProtegidasLiberadas){
+                  await solicitarAcessoProtegido(pagina,item);
+                  return;
+                }
+
+                showPage(pagina);
 
                 document
                   .querySelectorAll(".nav-item[data-page]")
@@ -1927,6 +2136,12 @@
             ====================================================== */
 
             async function abrirFicha(id){
+              if(!areasProtegidasLiberadas){
+                const nav = document.querySelector('.nav-item[data-page="pacientes"]');
+                await solicitarAcessoProtegido("pacientes",nav);
+                return;
+              }
+
 
               pacienteAtual =
                 pacientes.find(p=>p.id===id);
