@@ -828,6 +828,8 @@
                   <span>□</span><span>Pacotes</span>
                 </div>
 
+                <div class="nav-item" data-page="ferramentas"><span>✿</span><span>Ferramentas Clínicas</span></div>
+
                 <div class="nav-item" data-page="documentos">
                   <span>▤</span><span>Documentos</span>
                 </div>
@@ -1029,9 +1031,7 @@
                     <div id="tab-evolucoes" class="tab-content"></div>
 
                     <div id="tab-docs-paciente" class="tab-content">
-                      <div class="empty">
-                        A área de upload de documentos será configurada na próxima etapa.
-                      </div>
+                      <button class="btn-primary" onclick="adicionarArquivoClinico('paciente')">+ Anexar documento do paciente</button><div id="listaDocsPaciente" style="margin-top:18px"></div>
                     </div>
                   </section>
 
@@ -1095,6 +1095,10 @@
                       </div>
                     </div>
 
+                    <div class="cards" style="margin-top:16px"><div class="card stat"><small>Despesas pagas</small><h2 id="finDespesas">R$ 0,00</h2></div><div class="card stat green"><small>Resultado líquido realizado</small><h2 id="finLiquido">R$ 0,00</h2></div><div class="card stat rose"><small>Resultado previsto</small><h2 id="finPrevisto">R$ 0,00</h2></div></div>
+                    <div class="page-header"><h2>Despesas da clínica</h2><button class="btn-primary" onclick="abrirDespesa()">+ Nova despesa</button></div>
+                    <div class="table-card" style="margin-bottom:22px;overflow:auto"><table><thead><tr><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Frequência</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody id="listaDespesas"></tbody></table></div>
+                    <div class="page-header"><h2>Recebimentos</h2></div>
                     <div class="table-card">
                       <table>
                         <thead>
@@ -1161,10 +1165,14 @@
                     </div>
 
                     <div class="card">
-                      <div class="empty">
-                        O armazenamento de documentos será ativado após configurarmos o Storage privado do Supabase.
-                      </div>
+                      <p style="margin-bottom:14px;color:var(--texto-claro)">Documentos preenchidos e vinculados a cada paciente ficam na ficha individual dele.</p><button class="btn-secondary" onclick="showPage('pacientes')">Abrir pacientes</button>
                     </div>
+                  </section>
+
+                  <!-- BIBLIOTECA DE FERRAMENTAS -->
+                  <section id="page-ferramentas" class="page">
+                    <div class="page-header"><div><h1>Ferramentas Clínicas</h1><p>Biblioteca particular de modelos e materiais. Não é uma ficha de paciente.</p></div><button class="btn-primary" onclick="adicionarArquivoClinico('ferramenta')">+ Adicionar ferramenta</button></div>
+                    <div class="card"><div class="table-tools"><input id="buscaFerramenta" placeholder="Buscar ferramenta..." oninput="renderArquivosClinicos()"></div><div id="listaFerramentas"></div></div>
                   </section>
 
                   <!-- RELATÓRIOS -->
@@ -1253,6 +1261,8 @@
             let sessoes = [];
             let pagamentos = [];
             let pacotes = [];
+            let despesas = [];
+            let arquivosClinicos = [];
             let pacienteAtual = null;
 
             let areasProtegidasLiberadas = false;
@@ -1766,7 +1776,7 @@
                 carregarPacientes(),
                 carregarSessoes(),
                 carregarPagamentos(),
-                carregarPacotes()
+                carregarPacotes(),carregarDespesas(),carregarArquivosClinicos()
               ]);
 
               renderTudo();
@@ -1848,7 +1858,7 @@
               renderFinanceiro();
               renderPacotes();
               renderDashboard();
-              renderRelatorios();
+              renderRelatorios();renderDespesas();renderArquivosClinicos();
             }
 
 
@@ -1974,7 +1984,7 @@
                   </div>
 
                   <div class="field">
-                    <label>CPF</label>
+                    <label>Data de início do acompanhamento</label><input id="pInicio" type="date"></div><div class="field"><label>CPF</label>
                     <input id="pCpf">
                   </div>
 
@@ -2059,6 +2069,7 @@
                 data_nascimento:
                   document.getElementById("pNascimento").value
                   || null,
+                data_inicio_acompanhamento:document.getElementById("pInicio").value||null,
 
                 cpf:
                   document.getElementById("pCpf").value
@@ -2166,6 +2177,7 @@
               }
 
               renderDadosPaciente();
+              renderArquivosClinicos();
 
               await Promise.all([
                 renderAnamnese(),
@@ -2194,7 +2206,7 @@
 
                   <div>
                     <label>Data de nascimento</label>
-                    <p>${dataBR(p.data_nascimento)}</p>
+                    <p>${dataBR(p.data_nascimento)}</p></div><div><label>Início do acompanhamento</label><p>${dataBR(p.data_inicio_acompanhamento)}</p>
                   </div>
 
                   <div>
@@ -2292,10 +2304,9 @@
 
                   <div class="field full">
                     <label>Outras informações</label>
-                    <textarea id="aOutras">${
-                      escapeHTML(data?.outras_informacoes || "")
-                    }</textarea>
+                    <textarea id="aOutras">${escapeHTML(data?.outras_informacoes || "")}</textarea>
                   </div>
+                  ${[['escolar_profissional','Escolar / profissional'],['relacionamentos','Relacionamentos'],['saude','Saúde'],['habitos','Hábitos'],['queixa_atual','Queixa atual'],['objetivos_terapeuticos','Objetivos terapêuticos']].map(([campo,titulo])=>`<div class="field full"><label>${titulo}</label><textarea id="an_${campo}">${escapeHTML(data?.[campo]||'')}</textarea></div>`).join('')}
 
                   <div class="full">
                     <button
@@ -2327,6 +2338,12 @@
 
                 outras_informacoes:
                   document.getElementById("aOutras").value,
+                escolar_profissional:document.getElementById("an_escolar_profissional").value,
+                relacionamentos:document.getElementById("an_relacionamentos").value,
+                saude:document.getElementById("an_saude").value,
+                habitos:document.getElementById("an_habitos").value,
+                queixa_atual:document.getElementById("an_queixa_atual").value,
+                objetivos_terapeuticos:document.getElementById("an_objetivos_terapeuticos").value,
 
                 atualizado_em:new Date().toISOString()
               };
@@ -2826,6 +2843,11 @@
 
               document.getElementById("finPendente").textContent =
                 moeda(pendente);
+              const despPagas=despesas.filter(d=>d.status==='Pago').reduce((a,d)=>a+Number(d.valor||0),0);
+              const despPend=despesas.filter(d=>d.status==='Pendente').reduce((a,d)=>a+Number(d.valor||0),0);
+              document.getElementById('finDespesas').textContent=moeda(despPagas);
+              document.getElementById('finLiquido').textContent=moeda(recebido-despPagas);
+              document.getElementById('finPrevisto').textContent=moeda(recebido+pendente-despPagas-despPend);
 
               const tbody =
                 document.getElementById("listaFinanceiro");
@@ -3464,7 +3486,7 @@
                   </div>
 
                   <div class="field">
-                    <label>Telefone</label>
+                    <label>Data de início do acompanhamento</label><input id="epInicio" type="date" value="${escapeHTML(p.data_inicio_acompanhamento||'')}"></div><div class="field"><label>Telefone</label>
                     <input id="epTelefone" value="${escapeHTML(p.telefone || "")}">
                   </div>
 
@@ -3524,6 +3546,7 @@
 
                     nome_completo:
                       document.getElementById("epNome").value,
+                    data_inicio_acompanhamento:document.getElementById("epInicio").value||null,
 
                     telefone:
                       document.getElementById("epTelefone").value
@@ -3859,6 +3882,24 @@
             });
 
 
+
+            /* ======================================================
+               DESPESAS E ARQUIVOS CLÍNICOS
+            ====================================================== */
+            async function carregarDespesas(){const {data,error}=await sb.from('despesas').select('*').order('vencimento',{ascending:false});if(error){console.warn('Configure o SQL de despesas:',error.message);return;}despesas=data||[];}
+            async function carregarArquivosClinicos(){const {data,error}=await sb.from('arquivos_clinicos').select('*').order('criado_em',{ascending:false});if(error){console.warn('Configure o SQL de arquivos:',error.message);return;}arquivosClinicos=data||[];}
+            function renderDespesas(){const el=document.getElementById('listaDespesas');if(!el)return;el.innerHTML=despesas.length?despesas.map(d=>`<tr><td>${escapeHTML(d.descricao)}</td><td>${escapeHTML(d.categoria||'-')}</td><td>${dataBR(d.vencimento)}</td><td>${escapeHTML(d.frequencia)}</td><td>${moeda(d.valor)}</td><td>${escapeHTML(d.status)}</td><td><button class="mini-btn" onclick="abrirDespesa('${d.id}')">Editar</button> <button class="mini-btn danger" onclick="excluirDespesa('${d.id}')">Excluir</button></td></tr>`).join(''):'<tr><td colspan="7" class="empty">Nenhuma despesa cadastrada.</td></tr>';}
+            function abrirDespesa(id=''){const d=despesas.find(x=>x.id===id)||{};document.getElementById('modalTitulo').textContent=id?'Editar despesa':'Nova despesa';document.getElementById('modalConteudo').innerHTML=`<div class="form-grid"><div class="field full"><label>Descrição</label><input id="dDescricao" value="${escapeHTML(d.descricao||'')}" placeholder="Aluguel, energia, IPTU, café..."></div><div class="field"><label>Categoria</label><select id="dCategoria">${['Aluguel','Água/energia','Internet','Contador','Impostos sobre NF','IPTU','Bombeiro','Café e alimentação','Limpeza','Outros'].map(v=>`<option ${d.categoria===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field"><label>Valor</label><input id="dValor" type="number" step="0.01" min="0" value="${d.valor??''}"></div><div class="field"><label>Vencimento</label><input id="dVencimento" type="date" value="${d.vencimento||''}"></div><div class="field"><label>Frequência</label><select id="dFrequencia">${['Única','Mensal','Anual'].map(v=>`<option ${d.frequencia===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field"><label>Situação</label><select id="dStatus"><option ${d.status==='Pendente'?'selected':''}>Pendente</option><option ${d.status==='Pago'?'selected':''}>Pago</option></select></div></div><p style="font-size:12px;color:var(--texto-claro)">A frequência identifica a despesa. Para cada novo vencimento, registre o lançamento correspondente.</p>`;document.getElementById('modalSalvar').onclick=()=>salvarDespesa(id);abrirModal();}
+            async function salvarDespesa(id){const descricao=document.getElementById('dDescricao').value.trim(),valor=Number(document.getElementById('dValor').value);if(!descricao||!Number.isFinite(valor)||valor<=0){alert('Preencha a descrição e um valor maior que zero.');return;}const r={descricao,categoria:document.getElementById('dCategoria').value,valor,vencimento:document.getElementById('dVencimento').value||null,frequencia:document.getElementById('dFrequencia').value,status:document.getElementById('dStatus').value};const q=id?sb.from('despesas').update(r).eq('id',id):sb.from('despesas').insert(r);const {error}=await q;if(error){alert('Erro ao salvar despesa: '+error.message);return;}fecharModal();await carregarDespesas();renderFinanceiro();renderDespesas();}
+            async function excluirDespesa(id){if(!confirm('Excluir esta despesa?'))return;const {error}=await sb.from('despesas').delete().eq('id',id);if(error){alert(error.message);return;}await carregarDespesas();renderFinanceiro();renderDespesas();}
+            function nomeArquivoSeguro(nome){return nome.replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,100);}
+            function adicionarArquivoClinico(tipo){if(tipo==='paciente'&&!pacienteAtual){alert('Abra a ficha de um paciente.');return;}document.getElementById('modalTitulo').textContent=tipo==='ferramenta'?'Adicionar ferramenta':'Anexar documento do paciente';document.getElementById('modalConteudo').innerHTML=`<div class="field"><label>Nome / descrição</label><input id="arqTitulo" placeholder="Nome do material"></div><div class="field"><label>Arquivo PDF, Word ou imagem (até 10 MB)</label><input id="arqArquivo" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"></div><p style="font-size:12px;color:var(--texto-claro)">Arquivos ficam no armazenamento privado do Supabase.</p>`;document.getElementById('modalSalvar').onclick=()=>salvarArquivoClinico(tipo);abrirModal();}
+            async function salvarArquivoClinico(tipo){const file=document.getElementById('arqArquivo').files[0],titulo=document.getElementById('arqTitulo').value.trim();if(!file||!titulo){alert('Informe nome e arquivo.');return;}if(file.size>10*1024*1024){alert('Limite de 10 MB.');return;}const permitidos=['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','image/png','image/jpeg'];if(!permitidos.includes(file.type)){alert('Tipo de arquivo não permitido.');return;}const {data:{user}}=await sb.auth.getUser();if(!user){alert('Entre novamente na conta.');return;}const path=`${user.id}/${tipo}/${tipo==='paciente'?pacienteAtual.id+'/':''}${crypto.randomUUID()}_${nomeArquivoSeguro(file.name)}`;const {error:up}=await sb.storage.from('clinica-privada').upload(path,file,{contentType:file.type,upsert:false});if(up){alert('Falha no envio: '+up.message);return;}const {error}=await sb.from('arquivos_clinicos').insert({titulo,tipo,paciente_id:tipo==='paciente'?pacienteAtual.id:null,caminho:path,nome_original:file.name});if(error){await sb.storage.from('clinica-privada').remove([path]);alert('Erro ao salvar registro: '+error.message);return;}fecharModal();await carregarArquivosClinicos();renderArquivosClinicos();}
+            async function abrirArquivoClinico(id){const a=arquivosClinicos.find(x=>x.id===id);if(!a)return;const {data,error}=await sb.storage.from('clinica-privada').createSignedUrl(a.caminho,60);if(error){alert(error.message);return;}window.open(data.signedUrl,'_blank','noopener,noreferrer');}
+            async function renomearArquivoClinico(id){const a=arquivosClinicos.find(x=>x.id===id);if(!a)return;const titulo=prompt('Novo nome da ferramenta/documento:',a.titulo);if(!titulo?.trim())return;const {error}=await sb.from('arquivos_clinicos').update({titulo:titulo.trim()}).eq('id',id);if(error){alert(error.message);return;}await carregarArquivosClinicos();renderArquivosClinicos();}
+            async function excluirArquivoClinico(id){const a=arquivosClinicos.find(x=>x.id===id);if(!a||!confirm('Excluir este arquivo permanentemente?'))return;const {error:storageError}=await sb.storage.from('clinica-privada').remove([a.caminho]);if(storageError){alert(storageError.message);return;}const {error}=await sb.from('arquivos_clinicos').delete().eq('id',id);if(error){alert(error.message);return;}await carregarArquivosClinicos();renderArquivosClinicos();}
+            function renderArquivosClinicos(){const busca=(document.getElementById('buscaFerramenta')?.value||'').toLowerCase();const el=document.getElementById('listaFerramentas');if(el){const lista=arquivosClinicos.filter(a=>a.tipo==='ferramenta'&&a.titulo.toLowerCase().includes(busca));el.innerHTML=lista.length?lista.map(a=>cardArquivoClinico(a)).join(''):'<div class="empty">Nenhuma ferramenta anexada ainda.</div>';}const doc=document.getElementById('listaDocsPaciente');if(doc){const lista=arquivosClinicos.filter(a=>a.tipo==='paciente'&&pacienteAtual&&String(a.paciente_id)===String(pacienteAtual.id));doc.innerHTML=lista.length?lista.map(a=>cardArquivoClinico(a)).join(''):'<div class="empty">Nenhum documento anexado para este paciente.</div>';}}
+            function cardArquivoClinico(a){return `<div style="padding:15px;border-bottom:1px solid var(--borda);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><strong>📄 ${escapeHTML(a.titulo)}</strong><div style="font-size:12px;color:var(--texto-claro)">${escapeHTML(a.nome_original||'')}</div></div><div class="actions"><button class="mini-btn" onclick="abrirArquivoClinico('${a.id}')">Abrir / baixar</button><button class="mini-btn" onclick="renomearArquivoClinico('${a.id}')">Renomear</button><button class="mini-btn danger" onclick="excluirArquivoClinico('${a.id}')">Excluir</button></div></div>`;}
             /* ======================================================
                MODAL
             ====================================================== */
