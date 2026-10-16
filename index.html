@@ -677,6 +677,17 @@
                 .report-filters input,.report-filters select{max-width:220px;}
 
 
+
+                .birthday-card{margin-top:20px;}
+                .birthday-person{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid #F0EBF2;}
+                .birthday-person:last-child{border-bottom:0;}
+                .birthday-avatar{width:42px;height:42px;flex:0 0 42px;border-radius:13px;background:var(--rose-claro);display:flex;align-items:center;justify-content:center;font-size:21px;}
+                .birthday-info{flex:1;min-width:0;}
+                .birthday-info strong{display:block;margin-bottom:4px;}
+                .birthday-info small{color:var(--texto-claro);}
+                .birthday-action{white-space:nowrap;}
+                @media(max-width:600px){.birthday-person{align-items:flex-start;flex-wrap:wrap}.birthday-action{margin-left:54px}}
+
                 /* AGENDA SEMANAL */
                 .agenda-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
                 .agenda-nav,.agenda-view-switch{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
@@ -923,6 +934,12 @@
                         </div>
                       </div>
 
+                    </div>
+
+                    <div class="card birthday-card">
+                      <div class="card-title">🎂 Aniversariantes do dia</div>
+                      <p style="color:var(--texto-claro);font-size:13px;margin-top:-10px;margin-bottom:12px;">Lembrete para enviar uma mensagem especial aos pacientes.</p>
+                      <div id="aniversariantesHoje"><div class="empty">Carregando aniversariantes...</div></div>
                     </div>
                   </section>
 
@@ -3311,7 +3328,53 @@
               window.open(`https://wa.me/${brasil}?text=${encodeURIComponent(texto)}`,"_blank");
             }
 
+            function renderAniversariantesHoje(){
+              const container=document.getElementById("aniversariantesHoje");
+              if(!container) return;
+
+              const agora=new Date();
+              const mes=String(agora.getMonth()+1).padStart(2,"0");
+              const dia=String(agora.getDate()).padStart(2,"0");
+
+              const aniversariantes=pacientes
+                .filter(p=>{
+                  if(!p.data_nascimento) return false;
+                  const partes=String(p.data_nascimento).slice(0,10).split("-");
+                  return partes.length===3 && partes[1]===mes && partes[2]===dia;
+                })
+                .sort((a,b)=>(a.nome_completo||"").localeCompare(b.nome_completo||""));
+
+              if(!aniversariantes.length){
+                container.innerHTML='<div class="empty" style="padding:22px 12px;">Nenhum paciente faz aniversário hoje. 💜</div>';
+                return;
+              }
+
+              container.innerHTML=aniversariantes.map(p=>{
+                const nome=escapeHTML(p.nome_completo||"Paciente");
+                const telefone=String(p.telefone||"").replace(/\D/g,"");
+                const mensagem=`Olá, ${p.nome_completo||"tudo bem"}! 💜 Passando para te desejar um feliz aniversário! Que seu novo ciclo seja cheio de saúde, alegrias e coisas boas. Aproveite muito seu dia! 🎂✨`;
+                const link=telefone ? `https://wa.me/${telefone.startsWith("55")?telefone:"55"+telefone}?text=${encodeURIComponent(mensagem)}` : "";
+                return `<div class="birthday-person">
+                  <div class="birthday-avatar">🎂</div>
+                  <div class="birthday-info"><strong>${nome}</strong><small>Aniversário hoje! Deseje um feliz aniversário. 🎉</small></div>
+                  ${link ? `<button class="mini-btn whatsapp birthday-action" onclick="window.open('${link}','_blank','noopener')">💬 WhatsApp</button>` : `<button class="mini-btn birthday-action" onclick="copiarMensagemAniversario('${encodeURIComponent(mensagem)}')">Copiar mensagem</button>`}
+                </div>`;
+              }).join("");
+            }
+
+            async function copiarMensagemAniversario(mensagemCodificada){
+              const mensagem=decodeURIComponent(mensagemCodificada||"");
+              try{
+                await navigator.clipboard.writeText(mensagem);
+                alert("Mensagem de aniversário copiada!");
+              }catch(e){
+                prompt("Copie a mensagem de aniversário:",mensagem);
+              }
+            }
+
+
             function renderDashboard(){
+              renderAniversariantesHoje();
               const mes=document.getElementById("mesDashboard").value||hojeMes();
               const ativos=pacientes.filter(p=>p.status==="Ativo").length;
               const sessoesMes=sessoes.filter(s=>s.data_sessao?.startsWith(mes));
@@ -3486,6 +3549,11 @@
                   </div>
 
                   <div class="field">
+                    <label>Data de nascimento</label>
+                    <input id="epNascimento" type="date" value="${escapeHTML(p.data_nascimento||'')}">
+                  </div>
+
+                  <div class="field">
                     <label>Data de início do acompanhamento</label><input id="epInicio" type="date" value="${escapeHTML(p.data_inicio_acompanhamento||'')}"></div><div class="field"><label>Telefone</label>
                     <input id="epTelefone" value="${escapeHTML(p.telefone || "")}">
                   </div>
@@ -3546,6 +3614,7 @@
 
                     nome_completo:
                       document.getElementById("epNome").value,
+                    data_nascimento:document.getElementById("epNascimento").value||null,
                     data_inicio_acompanhamento:document.getElementById("epInicio").value||null,
 
                     telefone:
