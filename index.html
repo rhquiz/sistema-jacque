@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+            <!DOCTYPE html>
             <html lang="pt-BR">
             <head>
               <meta charset="UTF-8">
@@ -2069,7 +2069,10 @@
             }
 
 
+            let cadastroPacienteEmAndamento = false;
+
             async function salvarNovoPaciente(){
+              if(cadastroPacienteEmAndamento) return;
 
               const nome =
                 document.getElementById("pNome").value.trim();
@@ -2136,26 +2139,48 @@
                 status:"Ativo"
               };
 
-              const {error} =
-                await sb
-                  .from("pacientes")
-                  .insert(registro);
+              // Impede cliques repetidos enquanto o cadastro está sendo enviado.
+              cadastroPacienteEmAndamento = true;
+              const botaoSalvar = document.getElementById("modalSalvar");
+              const textoAnterior = botaoSalvar?.textContent || "Salvar";
+              if(botaoSalvar){ botaoSalvar.disabled = true; botaoSalvar.textContent = "Salvando..."; }
+              try{
+                const cpfInformado = String(registro.cpf || "").replace(/\D/g, "");
+                const normalizarNome = valor => String(valor || "").normalize("NFD")
+                  .replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
 
-              if(error){
+                // Consulta a base novamente para evitar conferir apenas uma lista desatualizada.
+                const {data: existentes, error: erroConsulta} = await sb.from("pacientes")
+                  .select("id,nome_completo,cpf,data_nascimento");
+                if(erroConsulta) throw erroConsulta;
 
-                alert(
-                  "Erro ao cadastrar paciente: "
-                  + error.message
-                );
+                const mesmoCpf = cpfInformado.length === 11 && (existentes || []).some(p =>
+                  String(p.cpf || "").replace(/\D/g, "") === cpfInformado);
+                if(mesmoCpf){
+                  alert("Já existe um paciente cadastrado com este CPF. Confira o cadastro antes de continuar.");
+                  return;
+                }
 
-                return;
+                const possivelDuplicado = (existentes || []).some(p =>
+                  normalizarNome(p.nome_completo) === normalizarNome(nome) &&
+                  (!registro.data_nascimento || !p.data_nascimento || p.data_nascimento === registro.data_nascimento));
+                if(possivelDuplicado && !confirm(
+                  "Já existe um cadastro com este nome" +
+                  (registro.data_nascimento ? " e data de nascimento" : "") +
+                  ". Verifique se é o mesmo paciente. Deseja cadastrar mesmo assim?")) return;
+
+                const {error} = await sb.from("pacientes").insert(registro);
+                if(error) throw error;
+
+                fecharModal();
+                await carregarPacientes();
+                renderTudo();
+              }catch(erro){
+                alert("Erro ao cadastrar paciente: " + (erro?.message || erro));
+              }finally{
+                cadastroPacienteEmAndamento = false;
+                if(botaoSalvar){ botaoSalvar.disabled = false; botaoSalvar.textContent = textoAnterior; }
               }
-
-              fecharModal();
-
-              await carregarPacientes();
-
-              renderTudo();
             }
 
 
