@@ -3046,28 +3046,29 @@
               fecharModal();await carregarPacotes();await carregarPacientes();renderTudo();if(pacienteAtual)renderPacotePaciente();
             }
 
-            // Cada comparecimento real é atribuído a um único pacote, em ordem cronológica.
-            // Pagamento, agendamento e faltas não consomem sessões.
+            // Pacotes: pagamento antecipado não consome sessões.
+            // Uma presença passada conta uma vez, no pacote mais antigo ainda com saldo
+            // e que já tinha começado na data da presença. Presenças futuras não contam.
+            function pacotesOrdenadosPaciente(pacienteId){
+              return pacotes.filter(pk=>String(pk.paciente_id)===String(pacienteId) && pk.status!=="Cancelado")
+                .sort((a,b)=>String(a.data_inicio||"").localeCompare(String(b.data_inicio||"")) || String(a.id).localeCompare(String(b.id)));
+            }
+            function pacoteAtualDoPaciente(pacienteId){
+              return pacotesOrdenadosPaciente(pacienteId).at(-1) || null;
+            }
             function contagemSessoesPorPacote(){
-              const contagem = new Map();
-              const hoje = dataISOlocal(new Date());
-              const grupos = new Map();
-              pacotes.forEach(pk=>{
-                contagem.set(String(pk.id),0);
-                const id=String(pk.paciente_id);
-                if(!grupos.has(id)) grupos.set(id,[]);
-                if(pk.status!=="Cancelado") grupos.get(id).push(pk);
-              });
-              for(const [id, lista] of grupos){
-                lista.sort((a,b)=>String(a.data_inicio||"").localeCompare(String(b.data_inicio||"")) || String(a.id).localeCompare(String(b.id)));
+              const contagem=new Map(pacotes.map(pk=>[String(pk.id),0]));
+              const hoje=dataISOlocal(new Date());
+              const ids=new Set(pacotes.map(pk=>String(pk.paciente_id)));
+              for(const id of ids){
+                const lista=pacotesOrdenadosPaciente(id);
                 const realizadas=sessoes.filter(s=>String(s.paciente_id)===id &&
                   String(s.comparecimento||"").trim().toLowerCase()==="compareceu" &&
                   s.data_sessao && s.data_sessao<=hoje)
                   .sort((a,b)=>String(a.data_sessao).localeCompare(String(b.data_sessao)) || String(a.horario||"").localeCompare(String(b.horario||"")) || String(a.id).localeCompare(String(b.id)));
                 for(const sessao of realizadas){
-                  const candidatos=lista.filter(pk=>!pk.data_inicio || sessao.data_sessao>=pk.data_inicio);
-                  // Prefere o pacote mais recente com saldo, mas não reaproveita uma sessão.
-                  const escolhido=[...candidatos].reverse().find(pk=>(contagem.get(String(pk.id))||0)<Number(pk.quantidade_sessoes||0));
+                  const escolhido=lista.find(pk=>(!pk.data_inicio || pk.data_inicio<=sessao.data_sessao) &&
+                    (contagem.get(String(pk.id))||0)<Number(pk.quantidade_sessoes||0));
                   if(escolhido) contagem.set(String(escolhido.id),(contagem.get(String(escolhido.id))||0)+1);
                 }
               }
@@ -3077,25 +3078,26 @@
               return contagemSessoesPorPacote().get(String(pk.id))||0;
             }
             function pacoteRenovado(pk){
-              return pacotes.some(outro=>String(outro.paciente_id)===String(pk.paciente_id) &&
-                String(outro.id)!==String(pk.id) && outro.status!=="Cancelado" &&
-                String(outro.data_inicio||"")>String(pk.data_inicio||""));
+              const atual=pacoteAtualDoPaciente(pk.paciente_id);
+              return !!atual && String(atual.id)!==String(pk.id);
             }
             function pacoteQuitado(pk){
               const pagos=pagamentos.filter(pg=>String(pg.pacote_id)===String(pk.id) && pg.status==="Pago");
               const total=pagos.reduce((n,pg)=>n+Number(pg.valor||0),0);
               return Number(pk.valor_total||0)>0 && total>=Number(pk.valor_total||0)-0.01;
             }
-
             function situacaoAlertaPacote(pk){
-              const usadas = sessoesUsadasPacote(pk);
-              const restantes = Math.max(Number(pk.quantidade_sessoes || 0) - usadas, 0);
-              const dias = diasAte(pk.data_validade);
-
-              if(restantes <= 0) return "Finalizado";
-              if(dias !== null && dias < 0) return "Vencido";
-              if(restantes === 1) return "Ultima";
-              if(dias !== null && dias >= 0 && dias <= 5) return "Vencendo";
+              if(pacoteRenovado(pk)) return "Historico";
+              const usadas=sessoesUsadasPacote(pk);
+              const restantes=Math.max(Number(pk.quantidade_sessoes||0)-usadas,0);
+              const hoje=dataISOlocal(new Date());
+              if(pk.data_inicio && pk.data_inicio>hoje) return "Aguardando";
+              if(restantes<=0) return "Finalizado";
+              if(restantes===1) return "Ultima";
+              const dias=diasAte(pk.data_validade);
+              // Vencimento de pacote pago não equivale a dívida.
+              if(!pacoteQuitado(pk) && dias!==null && dias<0) return "Vencido";
+              if(!pacoteQuitado(pk) && dias!==null && dias>=0 && dias<=5) return "Vencendo";
               return "Normal";
             }
 
@@ -3103,6 +3105,8 @@
               const situacao = situacaoAlertaPacote(pk);
               const dias = diasAte(pk.data_validade);
 
+              if(situacao === "Historico") return "Pacote anterior (histórico)";
+              if(situacao === "Aguardando") return "Novo pacote aguardando início";
               if(situacao === "Finalizado") return "Pacote finalizado";
               if(situacao === "Vencido") return `Vencido em ${dataBR(pk.data_validade)}`;
               if(situacao === "Ultima") return "⚠️ Última sessão";
@@ -3125,6 +3129,10 @@
               const numero = String(p.telefone).replace(/\D/g,"");
               const brasil = numero.startsWith("55") ? numero : "55"+numero;
               const situacao = situacaoAlertaPacote(pk);
+              if(situacao==="Historico" || situacao==="Aguardando"){
+                alert("Este pacote já foi renovado ou ainda não começou. Não há cobrança automática a enviar.");
+                return;
+              }
 
               let mensagem = "";
 
@@ -3157,6 +3165,8 @@ Agradeço pela confiança e seguimos juntas nesse processo!`;
             }
 
             function statusPacote(pk){
+              if(pacoteRenovado(pk)) return "Histórico";
+              if(pk.data_inicio && pk.data_inicio>dataISOlocal(new Date())) return "Aguardando início";
               const restantes=Math.max(Number(pk.quantidade_sessoes||0)-sessoesUsadasPacote(pk),0);
               const dias=diasAte(pk.data_validade);
               if(restantes<=0) return "Finalizado";
@@ -3370,6 +3380,10 @@ Agradeço pela confiança e seguimos juntas nesse processo!`;
               const pk=pacotes.find(x=>x.id===pacoteId);if(!pk)return;
               const p=pacientes.find(x=>x.id===pk.paciente_id);if(!p?.telefone){alert("Paciente sem WhatsApp cadastrado.");return;}
               const numero=p.telefone.replace(/\D/g,"");const brasil=numero.startsWith("55")?numero:"55"+numero;
+              if(pacoteRenovado(pk) || pacoteQuitado(pk)){
+                alert("Existe renovação ou pagamento registrado neste pacote. Confira o Financeiro antes de enviar cobrança.");
+                return;
+              }
               const dias=diasAte(pk.data_validade);
               const texto=dias<0
                 ?`Olá, ${p.nome_completo}!
@@ -3450,15 +3464,23 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
               document.getElementById("resumoAno").innerHTML=`<div style="padding:20px;background:var(--lilas-claro);border-radius:15px"><small>Faturamento recebido em ${ano}</small><h2 style="margin-top:7px">${moeda(totalAno)}</h2></div>`;
 
               const alertas=[];
-              pacotes.forEach(pk=>{
-                const p=pacientes.find(x=>x.id===pk.paciente_id);if(!p)return;
-                if(pacoteRenovado(pk) || (pk.data_inicio && pk.data_inicio>dataISOlocal(new Date()))) return;
-                const restantes=Math.max(Number(pk.quantidade_sessoes||0)-sessoesUsadasPacote(pk),0);
-                const dias=diasAte(pk.data_validade);
-                if(restantes===1) alertas.push(`<div class="alert-card session"><div class="alert-title">💜 Resta 1 sessão — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">O pacote possui somente mais uma sessão disponível.</div><button class="mini-btn whatsapp" onclick="abrirWhatsPacote('${pk.id}')">Enviar WhatsApp</button></div>`);
-                if(!pacoteQuitado(pk) && dias!==null && dias>=0 && dias<=5) alertas.push(`<div class="alert-card warning"><div class="alert-title">⏰ Pacote vence ${dias===0?'hoje':`em ${dias} dia(s)`} — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Validade: ${dataBR(pk.data_validade)}</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
-                if(!pacoteQuitado(pk) && dias!==null && dias<0) alertas.push(`<div class="alert-card danger"><div class="alert-title">🔴 Pacote vencido — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Venceu em ${dataBR(pk.data_validade)}</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
-              });
+              // No máximo um aviso por paciente; pacotes anteriores permanecem no histórico.
+              for(const p of pacientes){
+                if(p.status==="Inativo") continue;
+                const pk=pacoteAtualDoPaciente(p.id);
+                if(!pk) continue;
+                const situacao=situacaoAlertaPacote(pk);
+                if(situacao==="Aguardando"){
+                  alertas.push(`<div class="alert-card session"><div class="alert-title">💜 Novo pacote aguardando início — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Início previsto: ${dataBR(pk.data_inicio)}. Nenhuma sessão futura foi descontada.</div></div>`);
+                }else if(situacao==="Ultima"){
+                  alertas.push(`<div class="alert-card session"><div class="alert-title">💜 Resta 1 sessão — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">O pacote atual possui mais uma sessão disponível.</div><button class="mini-btn whatsapp" onclick="abrirWhatsPacote('${pk.id}')">Enviar WhatsApp</button></div>`);
+                }else if(situacao==="Vencendo"){
+                  const dias=diasAte(pk.data_validade);
+                  alertas.push(`<div class="alert-card warning"><div class="alert-title">⏰ Pacote vence ${dias===0?'hoje':`em ${dias} dia(s)`} — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Validade: ${dataBR(pk.data_validade)}. Confira o pagamento antes de enviar cobrança.</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
+                }else if(situacao==="Vencido"){
+                  alertas.push(`<div class="alert-card danger"><div class="alert-title">🔴 Verificar pacote — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Validade em ${dataBR(pk.data_validade)}. Confira se o pagamento foi vinculado ao pacote antes de cobrar.</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
+                }
+              }
               if(pagamentos.some(p=>p.status==="Pendente")) alertas.unshift(`<div class="alert-card warning"><div class="alert-title">💰 Pagamentos pendentes</div><div class="alert-text">Existem ${pagamentos.filter(p=>p.status==="Pendente").length} lançamento(s) pendente(s).</div></div>`);
               document.getElementById("alertasDashboard").innerHTML=alertas.length?alertas.join(""):`<div class="empty">Nenhum alerta no momento.</div>`;
             }
