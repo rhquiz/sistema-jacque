@@ -1,4 +1,4 @@
-            <!DOCTYPE html>
+<!DOCTYPE html>
             <html lang="pt-BR">
             <head>
               <meta charset="UTF-8">
@@ -3096,7 +3096,18 @@
               if(situacao === "Ultima"){
                 mensagem = `Olá, ${p.nome_completo}! 💜 Passando para avisar que resta apenas 1 sessão do seu pacote. Caso queira renovar, podemos organizar a continuidade dos seus atendimentos.`;
               }else if(situacao === "Vencido"){
-                mensagem = `Olá, ${p.nome_completo}! 💜 Passando para avisar que seu pacote de acompanhamento venceu no dia ${dataBR(pk.data_validade)}. Caso queira renovar, podemos organizar a continuidade dos seus atendimentos.`;
+                mensagem = `Olá, ${p.nome_completo}!
+
+Passando para lembrar que seu pacote de acompanhamento venceu dia ${dataBR(pk.data_validade)}.
+
+Para darmos continuidade aos nossos atendimentos, segue a chave Pix para realizar o pagamento da renovação:
+
+🔑 Chave Pix: 64992094706
+Alteridade Serviços Psicológicos
+
+Após o pagamento, peço, por gentileza, que me envie o comprovante.
+
+Agradeço pela confiança e seguimos juntas nesse processo!`;
               }else{
                 mensagem = `Olá, ${p.nome_completo}! 💜 Passando para avisar que seu pacote de acompanhamento está próximo do vencimento e vence no dia ${dataBR(pk.data_validade)}. Caso queira renovar, podemos organizar a continuidade dos seus atendimentos.`;
               }
@@ -3323,7 +3334,18 @@
               const numero=p.telefone.replace(/\D/g,"");const brasil=numero.startsWith("55")?numero:"55"+numero;
               const dias=diasAte(pk.data_validade);
               const texto=dias<0
-                ?`Olá, ${p.nome_completo}! 💜 Passando para avisar que seu pacote de acompanhamento venceu no dia ${dataBR(pk.data_validade)}. Caso queira renovar, entre em contato para organizarmos a continuidade dos seus atendimentos.`
+                ?`Olá, ${p.nome_completo}!
+
+Passando para lembrar que seu pacote de acompanhamento venceu dia ${dataBR(pk.data_validade)}.
+
+Para darmos continuidade aos nossos atendimentos, segue a chave Pix para realizar o pagamento da renovação:
+
+🔑 Chave Pix: 64992094706
+Alteridade Serviços Psicológicos
+
+Após o pagamento, peço, por gentileza, que me envie o comprovante.
+
+Agradeço pela confiança e seguimos juntas nesse processo!`
                 :`Olá, ${p.nome_completo}! 💜 Passando para avisar que seu pacote de acompanhamento está próximo do vencimento e vence no dia ${dataBR(pk.data_validade)}. Caso queira renovar, entre em contato para organizarmos a continuidade dos seus atendimentos.`;
               window.open(`https://wa.me/${brasil}?text=${encodeURIComponent(texto)}`,"_blank");
             }
