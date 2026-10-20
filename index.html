@@ -1080,7 +1080,7 @@
 
                     <div id="agendaLista" class="table-card hidden">
                       <table>
-                        <thead><tr><th>Data</th><th>Horário</th><th>Paciente</th><th>Situação</th><th>Valor</th><th>Pagamento</th><th>Ações</th></tr></thead>
+                        <thead><tr><th>Data</th><th>Horário</th><th>Paciente</th><th>Situação</th><th>Valor</th><th>Ações</th></tr></thead>
                         <tbody id="listaAgenda"></tbody>
                       </table>
                     </div>
@@ -2477,16 +2477,6 @@
                     </select>
                   </div>
 
-                  <div class="field">
-                    <label>Pagamento</label>
-                    <select id="sPagamento">
-                      <option>Pendente</option>
-                      <option>Pago</option>
-                      <option>Isento</option>
-                      <option>Pacote</option>
-                    </select>
-                  </div>
-
                   <div class="field full">
                     <label>Observações</label>
                     <textarea id="sObs"></textarea>
@@ -2573,7 +2563,7 @@
                 horario:document.getElementById("sHorario").value || null,
                 valor:Number(document.getElementById("sValor").value) || 0,
                 comparecimento:document.getElementById("sComparecimento").value,
-                situacao_pagamento:document.getElementById("sPagamento").value,
+                situacao_pagamento:"Pendente",
                 observacoes:document.getElementById("sObs").value || null
               };
 
@@ -2657,15 +2647,6 @@
                             <td>${s.horario || "-"}</td>
                             <td>${escapeHTML(s.comparecimento)}</td>
                             <td>${moeda(s.valor)}</td>
-                            <td>
-                              <span class="badge ${
-                                s.situacao_pagamento==="Pago"
-                                ? "badge-green"
-                                : "badge-rose"
-                              }">
-                                ${escapeHTML(s.situacao_pagamento)}
-                              </span>
-                            </td>
                             <td>
                               <div class="actions">
                                 <button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button>
@@ -2772,7 +2753,7 @@
                       const nome=(p?.nome_completo||"Paciente").split(" ");
                       const curto=nome.length>1 ? `${nome[0]} ${nome[nome.length-1].charAt(0)}.` : nome[0];
                       const classe=String(s.comparecimento||"agendado").toLowerCase();
-                      return `<div class="agenda-event ${classe}" onclick="event.stopPropagation();editarSessao('${s.id}')" title="${escapeHTML(p?.nome_completo||'Paciente')} - ${escapeHTML(s.comparecimento||'')}"><strong>${escapeHTML(curto)}</strong><div>${String(s.horario||'').slice(0,5)}</div><div class="event-meta">${escapeHTML(s.situacao_pagamento||'')}</div></div>`;
+                      return `<div class="agenda-event ${classe}" onclick="event.stopPropagation();editarSessao('${s.id}')" title="${escapeHTML(p?.nome_completo||'Paciente')} - ${escapeHTML(s.comparecimento||'')}"><strong>${escapeHTML(curto)}</strong><div>${String(s.horario||'').slice(0,5)}</div><div class="event-meta">${escapeHTML(s.comparecimento||"Agendado")}</div></div>`;
                     }).join("");
                   }
                   grade+=`</div>`;
@@ -2784,7 +2765,7 @@
               const ordenadas=[...sessoes].sort((a,b)=>`${b.data_sessao||''} ${b.horario||''}`.localeCompare(`${a.data_sessao||''} ${a.horario||''}`));
               tbody.innerHTML=ordenadas.length ? ordenadas.map(s=>{
                 const p=pacientes.find(p=>p.id===s.paciente_id);
-                return `<tr><td>${dataBR(s.data_sessao)}</td><td>${String(s.horario||'-').slice(0,5)}</td><td>${escapeHTML(p?.nome_completo||'-')}</td><td>${escapeHTML(s.comparecimento||'-')}</td><td>${moeda(s.valor)}</td><td>${escapeHTML(s.situacao_pagamento||'-')}</td><td><div class="actions"><button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button><button class="mini-btn danger" onclick="excluirRegistro('sessoes','${s.id}','sessão')">Excluir</button></div></td></tr>`;
+                return `<tr><td>${dataBR(s.data_sessao)}</td><td>${String(s.horario||'-').slice(0,5)}</td><td>${escapeHTML(p?.nome_completo||'-')}</td><td>${escapeHTML(s.comparecimento||'-')}</td><td>${moeda(s.valor)}</td><td><div class="actions"><button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button><button class="mini-btn danger" onclick="excluirRegistro('sessoes','${s.id}','sessão')">Excluir</button></div></td></tr>`;
               }).join("") : `<tr><td colspan="7"><div class="empty">Nenhuma sessão cadastrada.</div></td></tr>`;
               trocarVisualAgenda(agendaVisual);
             }
@@ -3065,16 +3046,45 @@
               fecharModal();await carregarPacotes();await carregarPacientes();renderTudo();if(pacienteAtual)renderPacotePaciente();
             }
 
+            // Cada comparecimento real é atribuído a um único pacote, em ordem cronológica.
+            // Pagamento, agendamento e faltas não consomem sessões.
+            function contagemSessoesPorPacote(){
+              const contagem = new Map();
+              const hoje = dataISOlocal(new Date());
+              const grupos = new Map();
+              pacotes.forEach(pk=>{
+                contagem.set(String(pk.id),0);
+                const id=String(pk.paciente_id);
+                if(!grupos.has(id)) grupos.set(id,[]);
+                if(pk.status!=="Cancelado") grupos.get(id).push(pk);
+              });
+              for(const [id, lista] of grupos){
+                lista.sort((a,b)=>String(a.data_inicio||"").localeCompare(String(b.data_inicio||"")) || String(a.id).localeCompare(String(b.id)));
+                const realizadas=sessoes.filter(s=>String(s.paciente_id)===id &&
+                  String(s.comparecimento||"").trim().toLowerCase()==="compareceu" &&
+                  s.data_sessao && s.data_sessao<=hoje)
+                  .sort((a,b)=>String(a.data_sessao).localeCompare(String(b.data_sessao)) || String(a.horario||"").localeCompare(String(b.horario||"")) || String(a.id).localeCompare(String(b.id)));
+                for(const sessao of realizadas){
+                  const candidatos=lista.filter(pk=>!pk.data_inicio || sessao.data_sessao>=pk.data_inicio);
+                  // Prefere o pacote mais recente com saldo, mas não reaproveita uma sessão.
+                  const escolhido=[...candidatos].reverse().find(pk=>(contagem.get(String(pk.id))||0)<Number(pk.quantidade_sessoes||0));
+                  if(escolhido) contagem.set(String(escolhido.id),(contagem.get(String(escolhido.id))||0)+1);
+                }
+              }
+              return contagem;
+            }
             function sessoesUsadasPacote(pk){
-              return sessoes.filter(s=>{
-                if(String(s.paciente_id) !== String(pk.paciente_id)) return false;
-
-                const situacao = String(s.comparecimento || "")
-                  .trim()
-                  .toLowerCase();
-
-                return situacao === "compareceu";
-              }).length;
+              return contagemSessoesPorPacote().get(String(pk.id))||0;
+            }
+            function pacoteRenovado(pk){
+              return pacotes.some(outro=>String(outro.paciente_id)===String(pk.paciente_id) &&
+                String(outro.id)!==String(pk.id) && outro.status!=="Cancelado" &&
+                String(outro.data_inicio||"")>String(pk.data_inicio||""));
+            }
+            function pacoteQuitado(pk){
+              const pagos=pagamentos.filter(pg=>String(pg.pacote_id)===String(pk.id) && pg.status==="Pago");
+              const total=pagos.reduce((n,pg)=>n+Number(pg.valor||0),0);
+              return Number(pk.valor_total||0)>0 && total>=Number(pk.valor_total||0)-0.01;
             }
 
             function situacaoAlertaPacote(pk){
@@ -3127,7 +3137,10 @@ Passando para lembrar que seu pacote de acompanhamento venceu dia ${dataBR(pk.da
 
 Para darmos continuidade aos nossos atendimentos, segue a chave Pix para realizar o pagamento da renovação:
 
-🔑 Chave Pix: 64992094706
+🔑 Chave Pix (copie o número abaixo):
+
+64992094706
+
 Alteridade Serviços Psicológicos
 
 Após o pagamento, peço, por gentileza, que me envie o comprovante.
@@ -3365,7 +3378,10 @@ Passando para lembrar que seu pacote de acompanhamento venceu dia ${dataBR(pk.da
 
 Para darmos continuidade aos nossos atendimentos, segue a chave Pix para realizar o pagamento da renovação:
 
-🔑 Chave Pix: 64992094706
+🔑 Chave Pix (copie o número abaixo):
+
+64992094706
+
 Alteridade Serviços Psicológicos
 
 Após o pagamento, peço, por gentileza, que me envie o comprovante.
@@ -3436,11 +3452,12 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
               const alertas=[];
               pacotes.forEach(pk=>{
                 const p=pacientes.find(x=>x.id===pk.paciente_id);if(!p)return;
+                if(pacoteRenovado(pk) || (pk.data_inicio && pk.data_inicio>dataISOlocal(new Date()))) return;
                 const restantes=Math.max(Number(pk.quantidade_sessoes||0)-sessoesUsadasPacote(pk),0);
                 const dias=diasAte(pk.data_validade);
                 if(restantes===1) alertas.push(`<div class="alert-card session"><div class="alert-title">💜 Resta 1 sessão — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">O pacote possui somente mais uma sessão disponível.</div><button class="mini-btn whatsapp" onclick="abrirWhatsPacote('${pk.id}')">Enviar WhatsApp</button></div>`);
-                if(dias!==null && dias>=0 && dias<=5) alertas.push(`<div class="alert-card warning"><div class="alert-title">⏰ Pacote vence ${dias===0?'hoje':`em ${dias} dia(s)`} — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Validade: ${dataBR(pk.data_validade)}</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
-                if(dias!==null && dias<0) alertas.push(`<div class="alert-card danger"><div class="alert-title">🔴 Pacote vencido — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Venceu em ${dataBR(pk.data_validade)}</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
+                if(!pacoteQuitado(pk) && dias!==null && dias>=0 && dias<=5) alertas.push(`<div class="alert-card warning"><div class="alert-title">⏰ Pacote vence ${dias===0?'hoje':`em ${dias} dia(s)`} — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Validade: ${dataBR(pk.data_validade)}</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
+                if(!pacoteQuitado(pk) && dias!==null && dias<0) alertas.push(`<div class="alert-card danger"><div class="alert-title">🔴 Pacote vencido — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Venceu em ${dataBR(pk.data_validade)}</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
               });
               if(pagamentos.some(p=>p.status==="Pendente")) alertas.unshift(`<div class="alert-card warning"><div class="alert-title">💰 Pagamentos pendentes</div><div class="alert-text">Existem ${pagamentos.filter(p=>p.status==="Pendente").length} lançamento(s) pendente(s).</div></div>`);
               document.getElementById("alertasDashboard").innerHTML=alertas.length?alertas.join(""):`<div class="empty">Nenhum alerta no momento.</div>`;
@@ -3828,7 +3845,6 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
               document.getElementById("sHorario").value=(s.horario||"").slice(0,5);
               document.getElementById("sValor").value=s.valor||"";
               document.getElementById("sComparecimento").value=s.comparecimento||"Agendado";
-              document.getElementById("sPagamento").value=s.situacao_pagamento||"Pendente";
               document.getElementById("sObs").value=s.observacoes||"";
 
               const recorrencia = document.getElementById("blocoRecorrencia");
@@ -3883,7 +3899,6 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
                 horario:document.getElementById("sHorario").value||null,
                 valor:Number(document.getElementById("sValor").value)||0,
                 comparecimento:document.getElementById("sComparecimento").value,
-                situacao_pagamento:document.getElementById("sPagamento").value,
                 observacoes:document.getElementById("sObs").value||null
               };
               if(!registro.paciente_id||!registro.data_sessao){alert("Selecione o paciente e a data.");return;}
