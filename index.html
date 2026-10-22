@@ -704,7 +704,7 @@
                 .agenda-event{height:100%;min-height:62px;border-radius:10px;padding:8px 9px;background:var(--lilas-claro);border-left:4px solid var(--lilas);font-size:11px;line-height:1.25;overflow:hidden;cursor:pointer;box-shadow:0 3px 10px rgba(91,68,101,.07);}
                 .agenda-event strong{display:block;font-size:12px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
                 .agenda-event.compareceu{background:var(--verde-claro);border-left-color:var(--verde);}.agenda-event.faltou{background:var(--amarelo-claro);border-left-color:var(--amarelo);}.agenda-event.cancelado{background:var(--vermelho-claro);border-left-color:var(--vermelho);opacity:.8;}
-                .agenda-event .event-meta{color:var(--texto-claro);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+                .agenda-event.pessoal{background:#E2EDF7;border-left-color:#608EB9;color:#315776}.agenda-event.pessoal .event-meta{color:#4B7498}.agenda-event .event-meta{color:var(--texto-claro);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
                 .agenda-empty{padding:45px 20px;text-align:center;color:var(--texto-claro);}
 
                 @media(max-width:1050px){
@@ -1060,7 +1060,7 @@
                         <h1>Agenda</h1>
                         <p>Visualize e organize os atendimentos da semana.</p>
                       </div>
-                      <button class="btn-primary" onclick="abrirNovaSessao()">+ Nova sessão</button>
+                      <div class="actions"><button class="btn-primary" onclick="abrirNovaSessao()">+ Nova sessão</button><button class="btn-secondary" onclick="abrirCompromisso()">+ Compromisso pessoal</button></div>
                     </div>
 
                     <div class="agenda-toolbar">
@@ -1276,6 +1276,7 @@
 
             let pacientes = [];
             let sessoes = [];
+            let compromissosPessoais = [];
             let pagamentos = [];
             let pacotes = [];
             let despesas = [];
@@ -1792,6 +1793,7 @@
               await Promise.all([
                 carregarPacientes(),
                 carregarSessoes(),
+                carregarCompromissosPessoais(),
                 carregarPagamentos(),
                 carregarPacotes(),carregarDespesas(),carregarArquivosClinicos()
               ]);
@@ -1833,6 +1835,12 @@
               sessoes = data || [];
             }
 
+
+            async function carregarCompromissosPessoais(){
+              const {data,error}=await sb.from("compromissos_pessoais").select("*").order("data_inicio");
+              if(error){console.error("Compromissos pessoais:",error);alert("Não foi possível carregar os compromissos pessoais. Confira se o SQL foi executado no Supabase. " + error.message);return;}
+              compromissosPessoais=data||[];
+            }
 
             async function carregarPagamentos(){
 
@@ -2422,6 +2430,115 @@
 
 
             /* ======================================================
+               COMPROMISSOS PESSOAIS — agenda e bloqueios
+               Cada ocorrência é um registro; recorrencia_id une a série.
+            ====================================================== */
+            function minutosHorario(h){const m=String(h||"00:00").match(/^(\d{1,2}):(\d{2})/);return m?Number(m[1])*60+Number(m[2]):0;}
+            function intervaloSobrepoe(a,b,c,d){return a<d && c<b;}
+            function conflitoPessoal(data,hora,duracao=60,ignorarIds=[]){
+              const inicio=minutosHorario(hora),fim=inicio+duracao;
+              return compromissosPessoais.some(c=>c.data_inicio===data&&!ignorarIds.includes(c.id)&&intervaloSobrepoe(inicio,fim,minutosHorario(c.hora_inicio),minutosHorario(c.hora_fim)));
+            }
+            function conflitoPaciente(data,inicio,fim){
+              return sessoes.some(s=>s.data_sessao===data&&s.comparecimento!=="Cancelado"&&intervaloSobrepoe(inicio,fim,minutosHorario(s.horario),minutosHorario(s.horario)+60));
+            }
+            function formularioCompromisso(){return `
+              <div class="form-grid">
+                <div class="field full"><label>Nome do compromisso</label><input id="cpTitulo" maxlength="150" placeholder="Ex.: Catequese do Nicolas"></div>
+                <div class="field"><label>Data</label><input id="cpData" type="date"></div>
+                <div class="field"><label>Início</label><input id="cpInicio" type="time"></div>
+                <div class="field"><label>Fim</label><input id="cpFim" type="time"></div>
+                <div class="field full"><label>Observações (opcional)</label><textarea id="cpObs"></textarea></div>
+                <div class="field full" id="cpBlocoRepeticao"><label>Repetir compromisso</label>
+                  <select id="cpRepeticao" onchange="document.getElementById('cpAteBox').classList.toggle('hidden',this.value==='nao')">
+                    <option value="nao">Não repetir</option><option value="semanal">Toda semana</option><option value="quinzenal">A cada 15 dias</option><option value="mensal">Todo mês</option>
+                  </select></div>
+                <div class="field full hidden" id="cpAteBox"><label>Repetir até</label><input id="cpAte" type="date"></div>
+              </div><p style="color:var(--texto-claro);font-size:12px">O horário ficará bloqueado para novos atendimentos. Sessões já cadastradas não serão excluídas.</p>`;}
+            function abrirCompromisso(data="",hora=""){
+              document.getElementById("modalTitulo").textContent="Novo compromisso pessoal";
+              document.getElementById("modalConteudo").innerHTML=formularioCompromisso();
+              document.getElementById("cpData").value=data||dataISOlocal(new Date());
+              document.getElementById("cpInicio").value=hora||"08:00";
+              document.getElementById("cpFim").value=hora?String(Number(hora.slice(0,2))+1).padStart(2,"0")+":00":"09:00";
+              document.getElementById("modalSalvar").onclick=salvarCompromisso;
+              abrirModal();
+            }
+            function dadosCompromisso(){return {titulo:document.getElementById("cpTitulo").value.trim(),data_inicio:document.getElementById("cpData").value,hora_inicio:document.getElementById("cpInicio").value,hora_fim:document.getElementById("cpFim").value,observacoes:document.getElementById("cpObs").value.trim()||null};}
+            function validarCompromisso(c){
+              if(!c.titulo||!c.data_inicio||!c.hora_inicio||!c.hora_fim){alert("Preencha título, data e horários.");return false;}
+              if(minutosHorario(c.hora_fim)<=minutosHorario(c.hora_inicio)){alert("O horário final precisa ser maior que o inicial.");return false;}
+              return true;
+            }
+            async function salvarCompromisso(){
+              const base=dadosCompromisso();if(!validarCompromisso(base))return;
+              const rep=document.getElementById("cpRepeticao").value,ate=document.getElementById("cpAte").value;
+              if(rep!=="nao"&&(!ate||ate<base.data_inicio)){alert("Informe uma data final válida para a repetição.");return;}
+              const serie=rep!=="nao"?crypto.randomUUID():null,registros=[];
+              let data=base.data_inicio;
+              for(let i=0;i<151;i++){
+                registros.push({...base,data_inicio:data,recorrencia_id:serie});
+                if(rep==="nao")break;
+                const proxima=proximaDataRecorrente(data,rep);if(proxima>ate)break;
+                if(i===150){alert("Limite de 150 repetições. Escolha um período menor.");return;}
+                data=proxima;
+              }
+              const conflitos=registros.filter(c=>conflitoPaciente(c.data_inicio,minutosHorario(c.hora_inicio),minutosHorario(c.hora_fim))||conflitoPessoal(c.data_inicio,c.hora_inicio,minutosHorario(c.hora_fim)-minutosHorario(c.hora_inicio)));
+              if(conflitos.length){alert("Existem horários ocupados em: "+conflitos.slice(0,8).map(c=>dataBR(c.data_inicio)).join(", ")+". Ajuste o período antes de salvar.");return;}
+              const btn=document.getElementById("modalSalvar");if(btn.disabled)return;btn.disabled=true;
+              try{
+                const {data:{user},error:authError}=await sb.auth.getUser();if(authError||!user)throw new Error("Sessão expirada. Entre novamente.");
+                const {error}=await sb.from("compromissos_pessoais").insert(registros.map(c=>({...c,usuario_id:user.id})));
+                if(error)throw error;
+                fecharModal();await carregarCompromissosPessoais();renderAgenda();
+              }catch(e){alert("Não foi possível salvar o compromisso: "+e.message);}finally{btn.disabled=false;}
+            }
+            function membrosCompromisso(c){return c.recorrencia_id?compromissosPessoais.filter(x=>x.recorrencia_id===c.recorrencia_id).sort((a,b)=>a.data_inicio.localeCompare(b.data_inicio)):[c];}
+            function escopoCompromissoHTML(c){return membrosCompromisso(c).length>1?`<div class="field full"><label>Aplicar a</label><select id="cpEscopo"><option value="uma">Somente este compromisso</option><option value="futuras">Este e os próximos</option><option value="todas">Toda a recorrência</option></select></div>`:"";}
+            function alvoCompromisso(c,escopo){return membrosCompromisso(c).filter(x=>escopo==="todas"||(escopo==="futuras"?x.data_inicio>=c.data_inicio:x.id===c.id));}
+            function editarCompromisso(id){
+              const c=compromissosPessoais.find(x=>x.id===id);if(!c)return;
+              document.getElementById("modalTitulo").textContent="Editar compromisso pessoal";
+              document.getElementById("modalConteudo").innerHTML=formularioCompromisso()+escopoCompromissoHTML(c);
+              document.getElementById("cpBlocoRepeticao").classList.add("hidden");
+              document.getElementById("cpTitulo").value=c.titulo;
+              document.getElementById("cpData").value=c.data_inicio;
+              document.getElementById("cpInicio").value=String(c.hora_inicio).slice(0,5);
+              document.getElementById("cpFim").value=String(c.hora_fim).slice(0,5);
+              document.getElementById("cpObs").value=c.observacoes||"";
+              document.getElementById("modalSalvar").onclick=()=>salvarEdicaoCompromisso(id);
+              abrirModal();
+            }
+            async function salvarEdicaoCompromisso(id){
+              const original=compromissosPessoais.find(x=>x.id===id);if(!original)return;
+              const dados=dadosCompromisso();if(!validarCompromisso(dados))return;
+              const escopo=document.getElementById("cpEscopo")?.value||"uma",alvos=alvoCompromisso(original,escopo);
+              const deslocamento=diferencaDiasISO(original.data_inicio,dados.data_inicio);
+              const atualizacoes=alvos.map(c=>({...dados,id:c.id,data_inicio:escopo==="uma"?dados.data_inicio:deslocarDataISO(c.data_inicio,deslocamento)}));
+              const ids=alvos.map(x=>x.id);
+              for(const c of atualizacoes){
+                if(conflitoPaciente(c.data_inicio,minutosHorario(c.hora_inicio),minutosHorario(c.hora_fim))||conflitoPessoal(c.data_inicio,c.hora_inicio,minutosHorario(c.hora_fim)-minutosHorario(c.hora_inicio),ids)){
+                  alert("Há um horário ocupado em "+dataBR(c.data_inicio)+". Nenhuma alteração foi iniciada.");return;
+                }
+              }
+              const btn=document.getElementById("modalSalvar");if(btn.disabled)return;btn.disabled=true;
+              try{
+                for(const c of atualizacoes){const {id:cid,...registro}=c;const {error}=await sb.from("compromissos_pessoais").update(registro).eq("id",cid);if(error)throw error;}
+                fecharModal();await carregarCompromissosPessoais();renderAgenda();
+              }catch(e){alert("Falha na alteração. Confira os compromissos antes de tentar novamente: "+e.message);await carregarCompromissosPessoais();renderAgenda();}finally{btn.disabled=false;}
+            }
+            async function excluirCompromisso(id){
+              const c=compromissosPessoais.find(x=>x.id===id);if(!c)return;
+              const serie=membrosCompromisso(c);
+              if(serie.length===1){if(!confirm("Excluir este compromisso pessoal?"))return;const {error}=await sb.from("compromissos_pessoais").delete().eq("id",id);if(error){alert(error.message);return;}await carregarCompromissosPessoais();renderAgenda();return;}
+              document.getElementById("modalTitulo").textContent="Excluir compromisso pessoal";
+              document.getElementById("modalConteudo").innerHTML=`<p style="margin-bottom:14px">${escapeHTML(c.titulo)} — ${dataBR(c.data_inicio)}</p>`+escopoCompromissoHTML(c);
+              const btn=document.getElementById("modalSalvar");
+              btn.onclick=async()=>{if(btn.disabled)return;const alvo=alvoCompromisso(c,document.getElementById("cpEscopo")?.value||"uma");if(!confirm(`Excluir ${alvo.length} compromisso(s)?`))return;btn.disabled=true;try{const {error}=await sb.from("compromissos_pessoais").delete().in("id",alvo.map(x=>x.id));if(error)throw error;fecharModal();await carregarCompromissosPessoais();renderAgenda();}catch(e){alert(e.message);}finally{btn.disabled=false;}};
+              abrirModal();btn.textContent="Excluir selecionados";
+            }
+
+            /* ======================================================
                SESSÕES
             ====================================================== */
 
@@ -2558,7 +2675,9 @@
                 return;
               }
 
+              const serieId = repeticao !== "nao" ? crypto.randomUUID() : null;
               const base = {
+                recorrencia_id:serieId,
                 paciente_id:pacienteId,
                 horario:document.getElementById("sHorario").value || null,
                 valor:Number(document.getElementById("sValor").value) || 0,
@@ -2588,7 +2707,13 @@
                 }
               }
 
+              const conflitos=registros.filter(r=>conflitoPessoal(r.data_sessao,r.horario,60));
+              if(conflitos.length){alert(`Horário bloqueado por compromisso pessoal em ${conflitos.map(x=>dataBR(x.data_sessao)).join(", ")}. Escolha outro horário ou altere o compromisso.`);return;}
+              const botaoSalvar = document.getElementById("modalSalvar");
+              if(botaoSalvar.disabled) return;
+              botaoSalvar.disabled = true;
               const {error} = await sb.from("sessoes").insert(registros);
+              if(error) botaoSalvar.disabled = false;
 
               if(error){
                 alert(error.message);
@@ -2650,7 +2775,7 @@
                             <td>
                               <div class="actions">
                                 <button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button>
-                                <button class="mini-btn danger" onclick="excluirRegistro('sessoes','${s.id}','sessão')">Excluir</button>
+                                <button class="mini-btn danger" onclick="excluirSessaoComEscopo('${s.id}')">Excluir</button>
                               </div>
                             </td>
                           </tr>
@@ -2745,7 +2870,8 @@
                 dias.forEach(d=>{
                   const iso=dataISOlocal(d);
                   const eventos=sessoes.filter(s=>s.data_sessao===iso && Number(String(s.horario||"00:00").slice(0,2))===hora)
-                    .sort((a,b)=>String(a.horario||"").localeCompare(String(b.horario||"")));
+                    .map(s=>({...s,_tipo:"sessao"})).concat(compromissosPessoais.filter(c=>c.data_inicio===iso && Number(String(c.hora_inicio||"00:00").slice(0,2))===hora).map(c=>({...c,_tipo:"pessoal"})))
+                    .sort((a,b)=>String(a.horario||a.hora_inicio||"").localeCompare(String(b.horario||b.hora_inicio||"")));
                   grade+=`<div class="agenda-cell" onclick="if(event.target===this) novaSessaoNoHorario('${iso}','${hh}')">`;
                   if(eventos.length){
                     grade+=eventos.map(s=>{
@@ -2753,6 +2879,7 @@
                       const nome=(p?.nome_completo||"Paciente").split(" ");
                       const curto=nome.length>1 ? `${nome[0]} ${nome[nome.length-1].charAt(0)}.` : nome[0];
                       const classe=String(s.comparecimento||"agendado").toLowerCase();
+                      if(s._tipo==="pessoal") return `<div class="agenda-event pessoal" onclick="event.stopPropagation();editarCompromisso('${s.id}')" title="Compromisso pessoal: ${escapeHTML(s.titulo)}"><strong>🔒 ${escapeHTML(s.titulo)}</strong><div>${String(s.hora_inicio||'').slice(0,5)}–${String(s.hora_fim||'').slice(0,5)}</div><div class="event-meta">Pessoal · Bloqueado</div></div>`;
                       return `<div class="agenda-event ${classe}" onclick="event.stopPropagation();editarSessao('${s.id}')" title="${escapeHTML(p?.nome_completo||'Paciente')} - ${escapeHTML(s.comparecimento||'')}"><strong>${escapeHTML(curto)}</strong><div>${String(s.horario||'').slice(0,5)}</div><div class="event-meta">${escapeHTML(s.comparecimento||"Agendado")}</div></div>`;
                     }).join("");
                   }
@@ -2762,11 +2889,12 @@
               grade+=`</div>`;
               calendario.innerHTML=grade;
 
-              const ordenadas=[...sessoes].sort((a,b)=>`${b.data_sessao||''} ${b.horario||''}`.localeCompare(`${a.data_sessao||''} ${a.horario||''}`));
+              const ordenadas=[...sessoes.map(s=>({...s,_tipo:"sessao"})),...compromissosPessoais.map(c=>({...c,_tipo:"pessoal",data_sessao:c.data_inicio,horario:c.hora_inicio}))].sort((a,b)=>`${b.data_sessao||''} ${b.horario||''}`.localeCompare(`${a.data_sessao||''} ${a.horario||''}`));
               tbody.innerHTML=ordenadas.length ? ordenadas.map(s=>{
+                if(s._tipo==="pessoal") return `<tr style="background:#F2F7FC"><td>${dataBR(s.data_inicio)}</td><td>${String(s.hora_inicio||'').slice(0,5)}–${String(s.hora_fim||'').slice(0,5)}</td><td>🔒 ${escapeHTML(s.titulo)}</td><td>Compromisso pessoal</td><td>—</td><td><div class="actions"><button class="mini-btn" onclick="editarCompromisso('${s.id}')">Editar</button><button class="mini-btn danger" onclick="excluirCompromisso('${s.id}')">Excluir</button></div></td></tr>`;
                 const p=pacientes.find(p=>p.id===s.paciente_id);
-                return `<tr><td>${dataBR(s.data_sessao)}</td><td>${String(s.horario||'-').slice(0,5)}</td><td>${escapeHTML(p?.nome_completo||'-')}</td><td>${escapeHTML(s.comparecimento||'-')}</td><td>${moeda(s.valor)}</td><td><div class="actions"><button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button><button class="mini-btn danger" onclick="excluirRegistro('sessoes','${s.id}','sessão')">Excluir</button></div></td></tr>`;
-              }).join("") : `<tr><td colspan="7"><div class="empty">Nenhuma sessão cadastrada.</div></td></tr>`;
+                return `<tr><td>${dataBR(s.data_sessao)}</td><td>${String(s.horario||'-').slice(0,5)}</td><td>${escapeHTML(p?.nome_completo||'-')}</td><td>${escapeHTML(s.comparecimento||'-')}</td><td>${moeda(s.valor)}</td><td><div class="actions"><button class="mini-btn" onclick="editarSessao('${s.id}')">Editar</button><button class="mini-btn danger" onclick="excluirSessaoComEscopo('${s.id}')">Excluir</button></div></td></tr>`;
+              }).join("") : `<tr><td colspan="6"><div class="empty">Nenhum agendamento cadastrado.</div></td></tr>`;
               trocarVisualAgenda(agendaVisual);
             }
 
@@ -3855,6 +3983,73 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
               }
             }
 
+            /* Recorrência: somente agendamentos criados com recorrencia_id
+               pertencem à mesma série. Nunca agrupar por nome ou dia da semana. */
+            function membrosRecorrencia(s){
+              if(!s?.recorrencia_id) return [s];
+              return sessoes.filter(x=>x.recorrencia_id===s.recorrencia_id)
+                .sort((a,b)=>a.data_sessao.localeCompare(b.data_sessao));
+            }
+
+            function escopoRecorrenciaHTML(s){
+              if(membrosRecorrencia(s).length<2) return "";
+              return `<div class="field full" style="background:#F8F5FB;border:1px solid var(--borda);border-radius:12px;padding:14px">
+                <label>Aplicar alteração a</label>
+                <select id="escopoSessao">
+                  <option value="uma">Somente esta sessão</option>
+                  <option value="futuras">Esta sessão e as próximas</option>
+                  <option value="todas">Todas as sessões da recorrência</option>
+                </select>
+                <small style="display:block;margin-top:8px;color:var(--texto-claro)">Atendimentos já realizados, faltas e cancelamentos anteriores serão preservados. Para alterar o histórico, edite a sessão individualmente.</small>
+              </div>`;
+            }
+
+            function escopoSelecionado(){return document.getElementById("escopoSessao")?.value||"uma";}
+            function sessoesNoEscopo(s,escopo){
+              const serie=membrosRecorrencia(s);
+              if(escopo==="uma") return [s];
+              return serie.filter(x=>(escopo==="todas" || x.data_sessao>=s.data_sessao)
+                && x.comparecimento==="Agendado");
+            }
+            function deslocarDataISO(iso,dias){
+              const d=new Date(iso+"T12:00:00Z");
+              d.setUTCDate(d.getUTCDate()+dias);
+              return d.toISOString().slice(0,10);
+            }
+            function diferencaDiasISO(a,b){
+              return Math.round((Date.parse(b+"T12:00:00Z")-Date.parse(a+"T12:00:00Z"))/86400000);
+            }
+            async function atualizarAgendaAposAlteracao(){
+              fecharModal();await carregarSessoes();renderTudo();
+              if(pacienteAtual) renderSessoesPaciente();
+            }
+            async function excluirSessaoComEscopo(id){
+              const s=sessoes.find(x=>x.id===id);if(!s)return;
+              const p=pacientes.find(x=>x.id===s.paciente_id);
+              const serie=membrosRecorrencia(s);
+              if(serie.length<2){
+                if(!confirm(`Excluir a sessão de ${p?.nome_completo||"paciente"} em ${dataBR(s.data_sessao)}?`))return;
+                const {error}=await sb.from("sessoes").delete().eq("id",id);
+                if(error){alert(error.message);return;}await atualizarAgendaAposAlteracao();return;
+              }
+              document.getElementById("modalTitulo").textContent="Excluir agendamento recorrente";
+              document.getElementById("modalConteudo").innerHTML=`<p style="margin-bottom:15px">${escapeHTML(p?.nome_completo||"")} — ${dataBR(s.data_sessao)}</p>${escopoRecorrenciaHTML(s)}`;
+              const botao=document.getElementById("modalSalvar");
+              botao.textContent="Excluir selecionadas";
+              botao.onclick=async()=>{
+                if(botao.disabled)return;
+                const alvo=sessoesNoEscopo(s,escopoSelecionado());
+                if(!alvo.length){alert("Nenhuma sessão agendada disponível para exclusão nesse período.");return;}
+                if(!confirm(`Excluir ${alvo.length} sessão(ões) agendada(s)? Esta ação não pode ser desfeita.`))return;
+                botao.disabled=true;
+                const {error}=await sb.from("sessoes").delete().in("id",alvo.map(x=>x.id));
+                if(error){botao.disabled=false;alert(error.message);return;}
+                await atualizarAgendaAposAlteracao();
+              };
+              abrirModal();
+              botao.textContent="Excluir selecionadas";
+            }
+
             function editarSessao(id){
               const s=sessoes.find(x=>x.id===id);
               if(!s) return;
@@ -3872,6 +4067,9 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
               const recorrencia = document.getElementById("blocoRecorrencia");
               if(recorrencia) recorrencia.classList.add("hidden");
 
+              const conteudo=document.getElementById("modalConteudo");
+              conteudo.insertAdjacentHTML("beforeend",escopoRecorrenciaHTML(s));
+              if(!s.recorrencia_id) conteudo.insertAdjacentHTML("beforeend",`<p style="font-size:12px;color:var(--texto-claro);margin-top:10px">Agendamento anterior à atualização: edição individual. Novas recorrências permitem editar toda a série.</p>`);
               document.getElementById("modalSalvar").onclick=()=>salvarEdicaoSessao(id);
 
               const footer = document.querySelector("#modal .modal-footer");
@@ -3881,40 +4079,14 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
                 btn.type = "button";
                 btn.className = "btn-delete-session";
                 btn.innerHTML = "🗑 Excluir sessão";
-                btn.onclick = ()=>excluirSessaoPeloModal(id);
+                btn.onclick = ()=>excluirSessaoComEscopo(id);
                 footer.prepend(btn);
               }
             }
 
-            async function excluirSessaoPeloModal(id){
-              const s = sessoes.find(x=>x.id===id);
-              if(!s) return;
-
-              const p = pacientes.find(x=>x.id===s.paciente_id);
-              const nome = p?.nome_completo || "este paciente";
-              const horario = (s.horario || "").slice(0,5) || "sem horário";
-
-              if(!confirm(`Excluir esta sessão?\n\n${nome}\n${dataBR(s.data_sessao)} às ${horario}\n\nEsta ação não pode ser desfeita.`)){
-                return;
-              }
-
-              const {error} = await sb.from("sessoes").delete().eq("id",id);
-
-              if(error){
-                alert("Não foi possível excluir a sessão: " + error.message);
-                return;
-              }
-
-              fecharModal();
-              await carregarSessoes();
-              renderTudo();
-
-              if(pacienteAtual) renderSessoesPaciente();
-
-              alert("Sessão excluída com sucesso.");
-            }
-
             async function salvarEdicaoSessao(id){
+              const original=sessoes.find(x=>x.id===id);
+              if(!original)return;
               const registro={
                 paciente_id:document.getElementById("sPaciente").value,
                 data_sessao:document.getElementById("sData").value,
@@ -3924,9 +4096,44 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
                 observacoes:document.getElementById("sObs").value||null
               };
               if(!registro.paciente_id||!registro.data_sessao){alert("Selecione o paciente e a data.");return;}
-              const {error}=await sb.from("sessoes").update(registro).eq("id",id);
-              if(error){alert(error.message);return;}
-              fecharModal(); await carregarSessoes(); renderTudo(); if(pacienteAtual) renderSessoesPaciente();
+              const escopo=escopoSelecionado();
+              const alvo=sessoesNoEscopo(original,escopo);
+              if(!alvo.length){alert("Nenhuma sessão agendada para alterar nesse período.");return;}
+              const botao=document.getElementById("modalSalvar");
+              if(botao.disabled)return;
+              botao.disabled=true;
+              try{
+                if(escopo==="uma"){
+                  if(conflitoPessoal(registro.data_sessao,registro.horario,60))throw new Error("Horário bloqueado por compromisso pessoal.");
+                  const {error}=await sb.from("sessoes").update(registro).eq("id",id);
+                  if(error)throw error;
+                }else{
+                  // Desloca a série pelo mesmo número de dias (quinta -> segunda)
+                  // e mantém a periodicidade original e o histórico intacto.
+                  const deslocamento=diferencaDiasISO(original.data_sessao,registro.data_sessao);
+                  const alteracoes=alvo.map(x=>({
+                    id:x.id,
+                    data_sessao:deslocarDataISO(x.data_sessao,deslocamento),
+                    horario:registro.horario,
+                    paciente_id:registro.paciente_id,
+                    valor:registro.valor
+                  }));
+                  // Verificação prévia para evitar datas iguais na mesma série.
+                  if(alteracoes.some(x=>conflitoPessoal(x.data_sessao,x.horario,60))){throw new Error("Existe compromisso pessoal bloqueando um ou mais novos horários.");}
+                  if(new Set(alteracoes.map(x=>x.data_sessao+"|"+(x.horario||""))).size!==alteracoes.length){
+                    throw new Error("A alteração geraria horários repetidos na série.");
+                  }
+                  // Atualiza somente sessões ainda agendadas. Não modifica comparecimento,
+                  // pagamento ou observações históricas.
+                  for(const item of alteracoes){
+                    const {id:alvoId,...dados}=item;
+                    const {error}=await sb.from("sessoes").update(dados).eq("id",alvoId).eq("comparecimento","Agendado");
+                    if(error)throw error;
+                  }
+                }
+                await atualizarAgendaAposAlteracao();
+              }catch(e){alert("Não foi possível concluir todas as alterações: "+e.message+". Atualize a agenda e confira as sessões antes de tentar novamente.");await carregarSessoes();renderTudo();}
+              finally{botao.disabled=false;}
             }
 
             function editarPagamento(id){
