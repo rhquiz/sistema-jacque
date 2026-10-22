@@ -3983,37 +3983,46 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
               }
             }
 
-            /* Recorrência: somente agendamentos criados com recorrencia_id
-               pertencem à mesma série. Nunca agrupar por nome ou dia da semana. */
+            /* Recorrências novas usam ID de série. Para registros antigos,
+               a seleção é assistida: mesmo paciente, dia da semana e horário,
+               somente sessões agendadas futuras, com conferência individual. */
+            function dataLocalISO(){
+              const d=new Date();
+              return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            }
+            function diaSemanaISO(data){return new Date(data+"T12:00:00Z").getUTCDay();}
             function membrosRecorrencia(s){
-              if(!s?.recorrencia_id) return [s];
+              if(!s?.recorrencia_id)return [s];
               return sessoes.filter(x=>x.recorrencia_id===s.recorrencia_id)
                 .sort((a,b)=>a.data_sessao.localeCompare(b.data_sessao));
             }
-
+            function candidatosRecorrenciaAntiga(s){
+              if(s.recorrencia_id)return membrosRecorrencia(s);
+              const dia=diaSemanaISO(s.data_sessao);
+              const hora=String(s.horario||"").slice(0,5);
+              return sessoes.filter(x=>!x.recorrencia_id && x.paciente_id===s.paciente_id
+                && diaSemanaISO(x.data_sessao)===dia
+                && String(x.horario||"").slice(0,5)===hora)
+                .sort((a,b)=>a.data_sessao.localeCompare(b.data_sessao));
+            }
             function escopoRecorrenciaHTML(s){
-              if(membrosRecorrencia(s).length<2) return "";
+              if(membrosRecorrencia(s).length<2)return "";
               return `<div class="field full" style="background:#F8F5FB;border:1px solid var(--borda);border-radius:12px;padding:14px">
-                <label>Aplicar alteração a</label>
-                <select id="escopoSessao">
+                <label>Aplicar alteração a</label><select id="escopoSessao">
                   <option value="uma">Somente esta sessão</option>
                   <option value="futuras">Esta sessão e as próximas</option>
-                  <option value="todas">Todas as sessões da recorrência</option>
-                </select>
-                <small style="display:block;margin-top:8px;color:var(--texto-claro)">Atendimentos já realizados, faltas e cancelamentos anteriores serão preservados. Para alterar o histórico, edite a sessão individualmente.</small>
+                </select><small style="display:block;margin-top:8px;color:var(--texto-claro)">Sessões anteriores e atendimentos já realizados serão preservados.</small>
               </div>`;
             }
-
             function escopoSelecionado(){return document.getElementById("escopoSessao")?.value||"uma";}
             function sessoesNoEscopo(s,escopo){
-              const serie=membrosRecorrencia(s);
-              if(escopo==="uma") return [s];
-              return serie.filter(x=>(escopo==="todas" || x.data_sessao>=s.data_sessao)
-                && x.comparecimento==="Agendado");
+              if(escopo==="uma")return [s];
+              const hoje=dataLocalISO();
+              return membrosRecorrencia(s).filter(x=>x.data_sessao>=s.data_sessao
+                && x.data_sessao>=hoje && x.comparecimento==="Agendado");
             }
             function deslocarDataISO(iso,dias){
-              const d=new Date(iso+"T12:00:00Z");
-              d.setUTCDate(d.getUTCDate()+dias);
+              const d=new Date(iso+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+dias);
               return d.toISOString().slice(0,10);
             }
             function diferencaDiasISO(a,b){
@@ -4021,33 +4030,62 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
             }
             async function atualizarAgendaAposAlteracao(){
               fecharModal();await carregarSessoes();renderTudo();
-              if(pacienteAtual) renderSessoesPaciente();
+              if(pacienteAtual)renderSessoesPaciente();
             }
             async function excluirSessaoComEscopo(id){
               const s=sessoes.find(x=>x.id===id);if(!s)return;
               const p=pacientes.find(x=>x.id===s.paciente_id);
-              const serie=membrosRecorrencia(s);
-              if(serie.length<2){
-                if(!confirm(`Excluir a sessão de ${p?.nome_completo||"paciente"} em ${dataBR(s.data_sessao)}?`))return;
-                const {error}=await sb.from("sessoes").delete().eq("id",id);
-                if(error){alert(error.message);return;}await atualizarAgendaAposAlteracao();return;
-              }
-              document.getElementById("modalTitulo").textContent="Excluir agendamento recorrente";
-              document.getElementById("modalConteudo").innerHTML=`<p style="margin-bottom:15px">${escapeHTML(p?.nome_completo||"")} — ${dataBR(s.data_sessao)}</p>${escopoRecorrenciaHTML(s)}`;
+              const hoje=dataLocalISO();
+              const futuros=candidatosRecorrenciaAntiga(s).filter(x=>x.data_sessao>=s.data_sessao
+                && x.data_sessao>=hoje && x.comparecimento==="Agendado");
+              const podeSerie=futuros.length>1;
+              document.getElementById("modalTitulo").textContent="Excluir agendamento";
+              document.getElementById("modalConteudo").innerHTML=`
+                <p style="margin-bottom:15px"><strong>${escapeHTML(p?.nome_completo||"")}</strong> — ${dataBR(s.data_sessao)}</p>
+                <div class="field"><label>O que deseja excluir?</label>
+                  <select id="escopoExcluirSessao" onchange="atualizarPreviaExclusaoSessao('${s.id}')">
+                    <option value="uma">Somente esta sessão</option>
+                    ${podeSerie?'<option value="futuras">Esta sessão e as próximas</option>':''}
+                  </select></div>
+                <div id="previaExclusaoSessao" style="margin:12px 0"></div>
+                ${!s.recorrencia_id && podeSerie?'<p style="font-size:12px;color:#93631d;background:#FFF4DD;padding:12px;border-radius:10px">Agendamentos antigos não possuem vínculo de recorrência. Confira as datas sugeridas e desmarque qualquer sessão que não faça parte dessa série.</p>':''}`;
               const botao=document.getElementById("modalSalvar");
-              botao.textContent="Excluir selecionadas";
+              botao.disabled=false;botao.textContent="Excluir selecionadas";
               botao.onclick=async()=>{
                 if(botao.disabled)return;
-                const alvo=sessoesNoEscopo(s,escopoSelecionado());
-                if(!alvo.length){alert("Nenhuma sessão agendada disponível para exclusão nesse período.");return;}
-                if(!confirm(`Excluir ${alvo.length} sessão(ões) agendada(s)? Esta ação não pode ser desfeita.`))return;
+                const escopo=document.getElementById("escopoExcluirSessao").value;
+                const ids=escopo==="uma"?[s.id]:[...document.querySelectorAll('.excluir-sessao-check:checked')].map(e=>e.value);
+                if(!ids.length){alert("Selecione pelo menos uma sessão.");return;}
+                if(escopo==="futuras" && ids.some(x=>!futuros.some(y=>y.id===x))){alert("Seleção inválida. Atualize a agenda.");return;}
+                if(!confirm(`Confirma excluir ${ids.length} agendamento(s)? Sessões anteriores e já realizadas serão preservadas.`))return;
                 botao.disabled=true;
-                const {error}=await sb.from("sessoes").delete().in("id",alvo.map(x=>x.id));
-                if(error){botao.disabled=false;alert(error.message);return;}
-                await atualizarAgendaAposAlteracao();
+                try{
+                  // Revalida o estado antes de excluir em lote.
+                  if(escopo==="futuras"){
+                    const {data:atuais,error:erroBusca}=await sb.from("sessoes").select("id,data_sessao,comparecimento").in("id",ids);
+                    if(erroBusca)throw erroBusca;
+                    if((atuais||[]).length!==ids.length || atuais.some(x=>x.data_sessao<hoje || x.comparecimento!=="Agendado")){
+                      throw new Error("Uma das sessões foi alterada. Atualize a agenda antes de excluir.");
+                    }
+                  }
+                  const {error}=await sb.from("sessoes").delete().in("id",ids);
+                  if(error)throw error;
+                  await atualizarAgendaAposAlteracao();
+                }catch(e){alert("Não foi possível excluir: "+e.message);botao.disabled=false;}
               };
-              abrirModal();
-              botao.textContent="Excluir selecionadas";
+              abrirModal();atualizarPreviaExclusaoSessao(s.id);
+            }
+            function atualizarPreviaExclusaoSessao(id){
+              const s=sessoes.find(x=>x.id===id);if(!s)return;
+              const escopo=document.getElementById("escopoExcluirSessao")?.value||"uma";
+              const hoje=dataLocalISO();
+              const lista=escopo==="uma"?[s]:candidatosRecorrenciaAntiga(s).filter(x=>x.data_sessao>=s.data_sessao
+                && x.data_sessao>=hoje && x.comparecimento==="Agendado");
+              const el=document.getElementById("previaExclusaoSessao");if(!el)return;
+              el.innerHTML=`<strong>${escopo==="uma"?"Sessão selecionada":"Confira os agendamentos futuros"}</strong>
+                <div style="max-height:230px;overflow:auto;margin-top:10px">${lista.map(x=>`<label style="display:flex;gap:9px;align-items:center;padding:7px;border-bottom:1px solid #eee;font-weight:500">
+                  <input type="checkbox" class="excluir-sessao-check" value="${x.id}" ${escopo==="uma"?'disabled checked':'checked'} style="width:auto">
+                  ${dataBR(x.data_sessao)} às ${escapeHTML(String(x.horario||"").slice(0,5))}</label>`).join("")}</div>`;
             }
 
             function editarSessao(id){
@@ -4069,7 +4107,7 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
 
               const conteudo=document.getElementById("modalConteudo");
               conteudo.insertAdjacentHTML("beforeend",escopoRecorrenciaHTML(s));
-              if(!s.recorrencia_id) conteudo.insertAdjacentHTML("beforeend",`<p style="font-size:12px;color:var(--texto-claro);margin-top:10px">Agendamento anterior à atualização: edição individual. Novas recorrências permitem editar toda a série.</p>`);
+              if(!s.recorrencia_id) conteudo.insertAdjacentHTML("beforeend",`<p style="font-size:12px;color:var(--texto-claro);margin-top:10px">Agendamento antigo: para excluir as próximas ocorrências, use Excluir sessão e confira as datas sugeridas. A edição em conjunto exige recorrência vinculada.</p>`);
               document.getElementById("modalSalvar").onclick=()=>salvarEdicaoSessao(id);
 
               const footer = document.querySelector("#modal .modal-footer");
