@@ -2601,6 +2601,12 @@
                     </select>
                   </div>
 
+                  <div class="field full" id="campoPacoteSessao">
+                    <label>Pacote desta sessão (para dar baixa corretamente)</label>
+                    <select id="sPacoteId"><option value="">Sem pacote / atendimento avulso</option></select>
+                    <small style="color:var(--texto-claro)">Ao marcar Compareceu, escolha o pacote correspondente. Pagamentos e agendamentos futuros não consomem sessões.</small>
+                  </div>
+
                   <div class="field full">
                     <label>Observações</label>
                     <textarea id="sObs"></textarea>
@@ -2637,12 +2643,31 @@
                   pacienteAtual.valor_sessao || "";
               }
 
+              document.getElementById("sPaciente").addEventListener("change",()=>atualizarPacotesDaSessao());
+              atualizarPacotesDaSessao();
               document.getElementById("modalSalvar").onclick =
                 salvarSessao;
 
               abrirModal();
             }
 
+
+            function atualizarPacotesDaSessao(selecionado){
+              const el=document.getElementById("sPacoteId");
+              if(!el)return;
+              const pacienteId=document.getElementById("sPaciente")?.value;
+              const anterior=selecionado!==undefined?String(selecionado||""):el.value;
+              const lista=pacotesOrdenadosPaciente(pacienteId);
+              el.innerHTML='<option value="">Sem pacote / atendimento avulso</option>'+lista.map(pk=>
+                `<option value="${escapeHTML(pk.id)}">${dataBR(pk.data_inicio)} — ${Number(pk.quantidade_sessoes||0)} sessões (${escapeHTML(statusPacote(pk))})</option>`).join("");
+              if(lista.some(pk=>String(pk.id)===anterior))el.value=anterior;
+              else if(lista.length===1)el.value=String(lista[0].id);
+              else if(lista.length>1){
+                const hoje=document.getElementById("sData")?.value||dataISOlocal(new Date());
+                const elegiveis=lista.filter(pk=>!pk.data_inicio||pk.data_inicio<=hoje);
+                el.value=String((elegiveis.at(-1)||lista[0]).id);
+              }
+            }
 
             function atualizarRepeticaoSessao(){
               const tipo = document.getElementById("sRepeticao")?.value || "nao";
@@ -2685,6 +2710,7 @@
               const serieId = repeticao !== "nao" ? crypto.randomUUID() : null;
               const base = {
                 recorrencia_id:serieId,
+                pacote_id:document.getElementById("sComparecimento").value==="Compareceu"?(document.getElementById("sPacoteId")?.value||null):null,
                 paciente_id:pacienteId,
                 horario:document.getElementById("sHorario").value || null,
                 valor:Number(document.getElementById("sValor").value) || 0,
@@ -3198,18 +3224,28 @@
             function contagemSessoesPorPacote(){
               const contagem=new Map(pacotes.map(pk=>[String(pk.id),0]));
               const hoje=dataISOlocal(new Date());
+              const validas=sessoes.filter(s=>
+                String(s.comparecimento||"").trim().toLowerCase()==="compareceu" &&
+                String(s.data_sessao||"").slice(0,10)<=hoje);
+              // Sessões com pacote escolhido são contabilizadas exclusivamente nele.
+              for(const s of validas){
+                const id=String(s.pacote_id||"");
+                const pk=pacotes.find(p=>String(p.id)===id);
+                if(pk && String(pk.paciente_id)===String(s.paciente_id))
+                  contagem.set(id,(contagem.get(id)||0)+1);
+              }
+              // Compatibilidade: sessões antigas sem vínculo são distribuídas
+              // cronologicamente, sem apagar ou reescrever dados clínicos.
               const ids=new Set(pacotes.map(pk=>String(pk.paciente_id)));
               for(const id of ids){
                 const lista=pacotesOrdenadosPaciente(id);
-                const realizadas=sessoes.filter(s=>String(s.paciente_id)===id &&
-                  String(s.comparecimento||"").trim().toLowerCase()==="compareceu" &&
-                  s.data_sessao && String(s.data_sessao).slice(0,10)<=hoje)
+                const antigas=validas.filter(s=>String(s.paciente_id)===id && !s.pacote_id)
                   .sort((a,b)=>String(a.data_sessao).localeCompare(String(b.data_sessao)) ||
                     String(a.horario||"").localeCompare(String(b.horario||"")) ||
                     String(a.id).localeCompare(String(b.id)));
-                for(const sessao of realizadas){
+                for(const sessao of antigas){
                   const escolhido=lista.find(pk=>(contagem.get(String(pk.id))||0)<Number(pk.quantidade_sessoes||0));
-                  if(escolhido) contagem.set(String(escolhido.id),(contagem.get(String(escolhido.id))||0)+1);
+                  if(escolhido)contagem.set(String(escolhido.id),(contagem.get(String(escolhido.id))||0)+1);
                 }
               }
               return contagem;
@@ -4113,6 +4149,7 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
               document.getElementById("sValor").value=s.valor||"";
               document.getElementById("sComparecimento").value=s.comparecimento||"Agendado";
               document.getElementById("sObs").value=s.observacoes||"";
+              atualizarPacotesDaSessao(s.pacote_id||"");
 
               const recorrencia = document.getElementById("blocoRecorrencia");
               if(recorrencia) recorrencia.classList.add("hidden");
@@ -4143,6 +4180,7 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
                 horario:document.getElementById("sHorario").value||null,
                 valor:Number(document.getElementById("sValor").value)||0,
                 comparecimento:document.getElementById("sComparecimento").value,
+                pacote_id:document.getElementById("sComparecimento").value==="Compareceu"?(document.getElementById("sPacoteId")?.value||null):null,
                 observacoes:document.getElementById("sObs").value||null
               };
               if(!registro.paciente_id||!registro.data_sessao){alert("Selecione o paciente e a data.");return;}
