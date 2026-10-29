@@ -1115,6 +1115,13 @@
                     <div class="cards" style="margin-top:16px"><div class="card stat"><small>Despesas pagas</small><h2 id="finDespesas">R$ 0,00</h2></div><div class="card stat green"><small>Resultado líquido realizado</small><h2 id="finLiquido">R$ 0,00</h2></div><div class="card stat rose"><small>Resultado previsto</small><h2 id="finPrevisto">R$ 0,00</h2></div></div>
                     <div class="page-header"><h2>Despesas da clínica</h2><button class="btn-primary" onclick="abrirDespesa()">+ Nova despesa</button></div>
                     <div class="table-card" style="margin-bottom:22px;overflow:auto"><table><thead><tr><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Frequência</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody id="listaDespesas"></tbody></table></div>
+                    <div id="secaoPendenciasFinanceiras" class="card" style="margin-bottom:22px;border-color:#E8D3A3">
+                      <div class="page-header" style="margin-bottom:12px;align-items:center">
+                        <div><h2>💰 Pagamentos pendentes <span id="quantidadePendencias" style="font-size:14px;color:var(--texto-claro)"></span></h2><p>Todos os lançamentos pendentes registrados. Clique para conferir ou registrar a quitação.</p></div>
+                        <button class="btn-secondary" onclick="atualizarPendenciasFinanceiras()">↻ Atualizar</button>
+                      </div>
+                      <div style="overflow:auto"><table><thead><tr><th>Data</th><th>Paciente</th><th>Descrição</th><th>Pacote</th><th>Valor</th><th>Ações</th></tr></thead><tbody id="listaPendenciasFinanceiras"></tbody></table></div>
+                    </div>
                     <div class="page-header"><h2>Recebimentos</h2></div>
                     <div class="table-card">
                       <table>
@@ -1850,19 +1857,24 @@
             }
 
             async function carregarPagamentos(){
-
-              const { data,error } =
-                await sb
-                  .from("pagamentos")
-                  .select("*")
-                  .order("data_pagamento",{ascending:false});
-
-              if(error){
-                console.error(error);
-                return;
+              // Paginação para não ocultar lançamentos antigos após o limite padrão de 1.000 linhas.
+              const todos=[];
+              const tamanhoPagina=500;
+              for(let inicio=0;inicio<100000;inicio+=tamanhoPagina){
+                const {data,error}=await sb.from("pagamentos").select("*")
+                  .order("data_pagamento",{ascending:false})
+                  .order("id",{ascending:true})
+                  .range(inicio,inicio+tamanhoPagina-1);
+                if(error){
+                  console.error("Erro ao carregar pagamentos:",error);
+                  alert("Não foi possível carregar todos os pagamentos: "+error.message);
+                  return false;
+                }
+                todos.push(...(data||[]));
+                if((data||[]).length<tamanhoPagina) break;
               }
-
-              pagamentos = data || [];
+              pagamentos=todos;
+              return true;
             }
 
 
@@ -3004,6 +3016,72 @@
               fecharModal();await carregarPagamentos();renderTudo();if(pacienteAtual)renderFinanceiroPaciente();
             }
 
+            // Pendências financeiras são lançamentos com status Pendente.
+            // Saldo de sessões ou pacote não utilizado NÃO representa dívida.
+            function renderPendenciasFinanceiras(){
+              const tbody=document.getElementById("listaPendenciasFinanceiras");
+              if(!tbody)return;
+              const pendencias=pagamentos.filter(pg=>pg.status==="Pendente")
+                .sort((a,b)=>String(a.data_pagamento||"").localeCompare(String(b.data_pagamento||"")));
+              const titulo=document.getElementById("quantidadePendencias");
+              if(titulo)titulo.textContent=`(${pendencias.length} lançamento${pendencias.length===1?'':'s'} • ${moeda(pendencias.reduce((s,p)=>s+Number(p.valor||0),0))})`;
+              if(!pendencias.length){
+                tbody.innerHTML='<tr><td colspan="6"><div class="empty">Nenhum pagamento pendente registrado.</div></td></tr>';
+                return;
+              }
+              tbody.innerHTML=pendencias.map(pg=>{
+                const paciente=pacientes.find(p=>p.id===pg.paciente_id);
+                const pacote=pacotes.find(p=>p.id===pg.pacote_id);
+                const detalhe=pacote?`${pacote.quantidade_sessoes||'-'} sessões • início ${dataBR(pacote.data_inicio)}`:'Sem pacote vinculado';
+                return `<tr>
+                  <td>${dataBR(pg.data_pagamento)}</td>
+                  <td>${escapeHTML(paciente?.nome_completo||'Paciente não localizado')}</td>
+                  <td>${escapeHTML(pg.descricao||'-')}</td>
+                  <td>${escapeHTML(detalhe)}</td>
+                  <td><strong>${moeda(pg.valor)}</strong></td>
+                  <td><div class="actions">
+                    <button class="mini-btn" onclick="editarPagamento('${pg.id}')">Ver / Editar</button>
+                    <button class="mini-btn whatsapp" onclick="confirmarQuitacaoPendente('${pg.id}')">Registrar quitação</button>
+                  </div></td></tr>`;
+              }).join('');
+            }
+
+            async function abrirPendenciasFinanceiras(){
+              if(!areasProtegidasLiberadas){
+                await solicitarAcessoProtegido('financeiro',document.querySelector('.nav-item[data-page="financeiro"]'));
+                return;
+              }
+              showPage('financeiro');
+              document.querySelectorAll('.nav-item[data-page]').forEach(n=>n.classList.toggle('active',n.dataset.page==='financeiro'));
+              renderPendenciasFinanceiras();
+              document.getElementById('secaoPendenciasFinanceiras')?.scrollIntoView({behavior:'smooth',block:'start'});
+            }
+
+            async function atualizarPendenciasFinanceiras(){
+              const ok=await carregarPagamentos();
+              if(!ok)return;
+              renderTudo();
+            }
+
+            async function confirmarQuitacaoPendente(id){
+              const pg=pagamentos.find(x=>x.id===id);
+              if(!pg||pg.status!=="Pendente"){
+                alert('Este lançamento já não está pendente. Atualize a lista.');return;
+              }
+              const paciente=pacientes.find(p=>p.id===pg.paciente_id);
+              if(!confirm(`Confirma que recebeu ${moeda(pg.valor)} de ${paciente?.nome_completo||'este paciente'}?\n\nApenas confirme após verificar o pagamento. A situação será alterada para Pago, sem consumir sessões.`))return;
+              const botao=document.querySelector(`#listaPendenciasFinanceiras button[onclick="confirmarQuitacaoPendente('${id}')"]`);
+              if(botao){botao.disabled=true;botao.textContent='Salvando...';}
+              try{
+                const {data,error}=await sb.from('pagamentos').update({status:'Pago'}).eq('id',id).eq('status','Pendente').select('id');
+                if(error)throw error;
+                if(!data?.length){alert('O lançamento já foi alterado. Atualize a lista.');return;}
+                const ok=await carregarPagamentos();
+                if(ok){renderTudo();if(pacienteAtual)renderFinanceiroPaciente();}
+              }catch(e){alert('Não foi possível registrar a quitação: '+e.message);}
+              finally{if(botao?.isConnected){botao.disabled=false;botao.textContent='Registrar quitação';}}
+            }
+
             function renderFinanceiro(){
 
               const recebido =
@@ -3033,6 +3111,7 @@
               document.getElementById('finLiquido').textContent=moeda(recebido-despPagas);
               document.getElementById('finPrevisto').textContent=moeda(recebido+pendente-despPagas-despPend);
 
+              renderPendenciasFinanceiras();
               const tbody =
                 document.getElementById("listaFinanceiro");
 
@@ -3657,7 +3736,7 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
                   alertas.push(`<div class="alert-card danger"><div class="alert-title">🔴 Verificar pacote — ${escapeHTML(p.nome_completo)}</div><div class="alert-text">Validade em ${dataBR(pk.data_validade)}. Confira se o pagamento foi vinculado ao pacote antes de cobrar.</div><button class="mini-btn whatsapp" onclick="abrirWhatsVencimento('${pk.id}')">Enviar WhatsApp</button></div>`);
                 }
               }
-              if(pagamentos.some(p=>p.status==="Pendente")) alertas.unshift(`<div class="alert-card warning"><div class="alert-title">💰 Pagamentos pendentes</div><div class="alert-text">Existem ${pagamentos.filter(p=>p.status==="Pendente").length} lançamento(s) pendente(s).</div></div>`);
+              if(pagamentos.some(p=>p.status==="Pendente")) alertas.unshift(`<div class="alert-card warning"><div class="alert-title">💰 Pagamentos pendentes</div><div class="alert-text">Existem ${pagamentos.filter(p=>p.status==="Pendente").length} lançamento(s) pendente(s). Abra a lista para conferir cada um.</div><button class="mini-btn" onclick="abrirPendenciasFinanceiras()">Ver todos os pendentes</button></div>`);
               document.getElementById("alertasDashboard").innerHTML=alertas.length?alertas.join(""):`<div class="empty">Nenhum alerta no momento.</div>`;
             }
 
