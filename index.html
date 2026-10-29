@@ -1820,19 +1820,26 @@
 
 
             async function carregarSessoes(){
-
-              const { data,error } =
-                await sb
-                  .from("sessoes")
-                  .select("*")
-                  .order("data_sessao",{ascending:false});
-
-              if(error){
-                console.error(error);
-                return;
+              // Supabase retorna no máximo 1.000 linhas por consulta por padrão.
+              // Carregamos todas as páginas para que sessões antigas também
+              // sejam consideradas no saldo dos pacotes.
+              const todas=[];
+              const tamanhoPagina=500;
+              for(let inicio=0;inicio<100000;inicio+=tamanhoPagina){
+                const {data,error}=await sb.from("sessoes").select("*")
+                  .order("data_sessao",{ascending:false})
+                  .order("id",{ascending:true})
+                  .range(inicio,inicio+tamanhoPagina-1);
+                if(error){
+                  console.error("Erro ao carregar sessões:",error);
+                  alert("Não foi possível atualizar todas as sessões. Confira a conexão e tente novamente. "+error.message);
+                  return false;
+                }
+                todas.push(...(data||[]));
+                if((data||[]).length<tamanhoPagina) break;
               }
-
-              sessoes = data || [];
+              sessoes=todas;
+              return true;
             }
 
 
@@ -3184,6 +3191,10 @@
             function pacoteAtualDoPaciente(pacienteId){
               return pacotesOrdenadosPaciente(pacienteId).at(-1) || null;
             }
+            // Distribui apenas comparecimentos já realizados entre os pacotes,
+            // do mais antigo para o mais novo, sem descontar por pagamento ou agendamento.
+            // Não exige que a data do atendimento seja posterior ao início cadastrado
+            // do pacote: isso corrigia contagens erradas de atendimentos retroativos.
             function contagemSessoesPorPacote(){
               const contagem=new Map(pacotes.map(pk=>[String(pk.id),0]));
               const hoje=dataISOlocal(new Date());
@@ -3192,11 +3203,12 @@
                 const lista=pacotesOrdenadosPaciente(id);
                 const realizadas=sessoes.filter(s=>String(s.paciente_id)===id &&
                   String(s.comparecimento||"").trim().toLowerCase()==="compareceu" &&
-                  s.data_sessao && s.data_sessao<=hoje)
-                  .sort((a,b)=>String(a.data_sessao).localeCompare(String(b.data_sessao)) || String(a.horario||"").localeCompare(String(b.horario||"")) || String(a.id).localeCompare(String(b.id)));
+                  s.data_sessao && String(s.data_sessao).slice(0,10)<=hoje)
+                  .sort((a,b)=>String(a.data_sessao).localeCompare(String(b.data_sessao)) ||
+                    String(a.horario||"").localeCompare(String(b.horario||"")) ||
+                    String(a.id).localeCompare(String(b.id)));
                 for(const sessao of realizadas){
-                  const escolhido=lista.find(pk=>(!pk.data_inicio || pk.data_inicio<=sessao.data_sessao) &&
-                    (contagem.get(String(pk.id))||0)<Number(pk.quantidade_sessoes||0));
+                  const escolhido=lista.find(pk=>(contagem.get(String(pk.id))||0)<Number(pk.quantidade_sessoes||0));
                   if(escolhido) contagem.set(String(escolhido.id),(contagem.get(String(escolhido.id))||0)+1);
                 }
               }
@@ -3298,7 +3310,7 @@ Agradeço pela confiança e seguimos juntas nesse processo!`;
               const restantes=Math.max(Number(pk.quantidade_sessoes||0)-sessoesUsadasPacote(pk),0);
               const dias=diasAte(pk.data_validade);
               if(restantes<=0) return "Finalizado";
-              if(dias!==null && dias<0) return "Vencido";
+              if(!pacoteQuitado(pk) && dias!==null && dias<0) return "Vencido";
               return pk.status||"Em andamento";
             }
 
