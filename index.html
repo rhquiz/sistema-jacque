@@ -1100,6 +1100,11 @@
                       </button>
                     </div>
 
+                    <div class="card" style="margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                      <div style="flex:1;min-width:210px"><strong>Período financeiro</strong><p style="font-size:12px;color:var(--texto-claro);margin-top:5px">Consulte um mês específico ou todo o histórico.</p></div>
+                      <div class="month-control"><label for="mesFinanceiro" style="margin:0">Mês e ano</label><input type="month" id="mesFinanceiro" onchange="renderFinanceiro()"></div>
+                      <label style="display:flex;align-items:center;gap:8px;margin:0;white-space:nowrap"><input type="checkbox" id="todosMesesFinanceiro" style="width:auto" onchange="alternarTodosMesesFinanceiro()"> Todos os meses</label>
+                    </div>
                     <div class="cards">
                       <div class="card stat green">
                         <small>Recebido</small>
@@ -1117,7 +1122,7 @@
                     <div class="table-card" style="margin-bottom:22px;overflow:auto"><table><thead><tr><th>Descrição</th><th>Categoria</th><th>Vencimento</th><th>Frequência</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody id="listaDespesas"></tbody></table></div>
                     <div id="secaoPendenciasFinanceiras" class="card" style="margin-bottom:22px;border-color:#E8D3A3">
                       <div class="page-header" style="margin-bottom:12px;align-items:center">
-                        <div><h2>💰 Pagamentos pendentes <span id="quantidadePendencias" style="font-size:14px;color:var(--texto-claro)"></span></h2><p>Todos os lançamentos pendentes registrados. Clique para conferir ou registrar a quitação.</p></div>
+                        <div><h2>💰 Pagamentos pendentes <span id="quantidadePendencias" style="font-size:14px;color:var(--texto-claro)"></span></h2><p>Pendências do período selecionado. Use “Todos os meses” para conferir o histórico completo.</p></div>
                         <button class="btn-secondary" onclick="atualizarPendenciasFinanceiras()">↻ Atualizar</button>
                       </div>
                       <div style="overflow:auto"><table><thead><tr><th>Data</th><th>Paciente</th><th>Descrição</th><th>Pacote</th><th>Valor</th><th>Ações</th></tr></thead><tbody id="listaPendenciasFinanceiras"></tbody></table></div>
@@ -1399,6 +1404,7 @@
 
               document.getElementById("mesDashboard").value =
                 hojeMes();
+              document.getElementById("mesFinanceiro").value = hojeMes();
 
               await carregarTudo();
             }
@@ -3018,10 +3024,22 @@
 
             // Pendências financeiras são lançamentos com status Pendente.
             // Saldo de sessões ou pacote não utilizado NÃO representa dívida.
+            function mesFinanceiroSelecionado(){
+              return document.getElementById("todosMesesFinanceiro")?.checked ? null : (document.getElementById("mesFinanceiro")?.value || hojeMes());
+            }
+            function dentroPeriodoFinanceiro(data){
+              const mes=mesFinanceiroSelecionado();
+              return !mes || String(data||"").slice(0,7)===mes;
+            }
+            function alternarTodosMesesFinanceiro(){
+              const mes=document.getElementById("mesFinanceiro");
+              if(mes)mes.disabled=!!document.getElementById("todosMesesFinanceiro")?.checked;
+              renderFinanceiro();
+            }
             function renderPendenciasFinanceiras(){
               const tbody=document.getElementById("listaPendenciasFinanceiras");
               if(!tbody)return;
-              const pendencias=pagamentos.filter(pg=>pg.status==="Pendente")
+              const pendencias=pagamentos.filter(pg=>pg.status==="Pendente" && dentroPeriodoFinanceiro(pg.data_pagamento))
                 .sort((a,b)=>String(a.data_pagamento||"").localeCompare(String(b.data_pagamento||"")));
               const titulo=document.getElementById("quantidadePendencias");
               if(titulo)titulo.textContent=`(${pendencias.length} lançamento${pendencias.length===1?'':'s'} • ${moeda(pendencias.reduce((s,p)=>s+Number(p.valor||0),0))})`;
@@ -3052,6 +3070,8 @@
                 return;
               }
               showPage('financeiro');
+              document.getElementById('todosMesesFinanceiro').checked=true;
+              alternarTodosMesesFinanceiro();
               document.querySelectorAll('.nav-item[data-page]').forEach(n=>n.classList.toggle('active',n.dataset.page==='financeiro'));
               renderPendenciasFinanceiras();
               document.getElementById('secaoPendenciasFinanceiras')?.scrollIntoView({behavior:'smooth',block:'start'});
@@ -3084,8 +3104,10 @@
 
             function renderFinanceiro(){
 
+              const pagamentosPeriodo=pagamentos.filter(p=>dentroPeriodoFinanceiro(p.data_pagamento));
+              const despesasPeriodo=despesas.filter(d=>dentroPeriodoFinanceiro(d.vencimento));
               const recebido =
-                pagamentos
+                pagamentosPeriodo
                   .filter(p=>p.status==="Pago")
                   .reduce(
                     (s,p)=>s+Number(p.valor||0),
@@ -3093,7 +3115,7 @@
                   );
 
               const pendente =
-                pagamentos
+                pagamentosPeriodo
                   .filter(p=>p.status==="Pendente")
                   .reduce(
                     (s,p)=>s+Number(p.valor||0),
@@ -3105,21 +3127,22 @@
 
               document.getElementById("finPendente").textContent =
                 moeda(pendente);
-              const despPagas=despesas.filter(d=>d.status==='Pago').reduce((a,d)=>a+Number(d.valor||0),0);
-              const despPend=despesas.filter(d=>d.status==='Pendente').reduce((a,d)=>a+Number(d.valor||0),0);
+              const despPagas=despesasPeriodo.filter(d=>d.status==='Pago').reduce((a,d)=>a+Number(d.valor||0),0);
+              const despPend=despesasPeriodo.filter(d=>d.status==='Pendente').reduce((a,d)=>a+Number(d.valor||0),0);
               document.getElementById('finDespesas').textContent=moeda(despPagas);
               document.getElementById('finLiquido').textContent=moeda(recebido-despPagas);
               document.getElementById('finPrevisto').textContent=moeda(recebido+pendente-despPagas-despPend);
 
               renderPendenciasFinanceiras();
+              renderDespesas();
               const tbody =
                 document.getElementById("listaFinanceiro");
 
-              if(!pagamentos.length){
+              if(!pagamentosPeriodo.length){
 
                 tbody.innerHTML = `
                   <tr>
-                    <td colspan="7">
+                    <td colspan="9">
                       <div class="empty">
                         Nenhum lançamento financeiro.
                       </div>
@@ -3131,7 +3154,7 @@
               }
 
               tbody.innerHTML =
-                pagamentos.map(pg=>{
+                pagamentosPeriodo.map(pg=>{
 
                   const p =
                     pacientes.find(
@@ -4415,7 +4438,7 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
             ====================================================== */
             async function carregarDespesas(){const {data,error}=await sb.from('despesas').select('*').order('vencimento',{ascending:false});if(error){console.warn('Configure o SQL de despesas:',error.message);return;}despesas=data||[];}
             async function carregarArquivosClinicos(){const {data,error}=await sb.from('arquivos_clinicos').select('*').order('criado_em',{ascending:false});if(error){console.warn('Configure o SQL de arquivos:',error.message);return;}arquivosClinicos=data||[];}
-            function renderDespesas(){const el=document.getElementById('listaDespesas');if(!el)return;el.innerHTML=despesas.length?despesas.map(d=>`<tr><td>${escapeHTML(d.descricao)}</td><td>${escapeHTML(d.categoria||'-')}</td><td>${dataBR(d.vencimento)}</td><td>${escapeHTML(d.frequencia)}</td><td>${moeda(d.valor)}</td><td>${escapeHTML(d.status)}</td><td><button class="mini-btn" onclick="abrirDespesa('${d.id}')">Editar</button> <button class="mini-btn danger" onclick="excluirDespesa('${d.id}')">Excluir</button></td></tr>`).join(''):'<tr><td colspan="7" class="empty">Nenhuma despesa cadastrada.</td></tr>';}
+            function renderDespesas(){const el=document.getElementById('listaDespesas');if(!el)return;const lista=despesas.filter(d=>dentroPeriodoFinanceiro(d.vencimento));el.innerHTML=lista.length?lista.map(d=>`<tr><td>${escapeHTML(d.descricao)}</td><td>${escapeHTML(d.categoria||'-')}</td><td>${dataBR(d.vencimento)}</td><td>${escapeHTML(d.frequencia)}</td><td>${moeda(d.valor)}</td><td>${escapeHTML(d.status)}</td><td><button class="mini-btn" onclick="abrirDespesa('${d.id}')">Editar</button> <button class="mini-btn danger" onclick="excluirDespesa('${d.id}')">Excluir</button></td></tr>`).join(''):'<tr><td colspan="7" class="empty">Nenhuma despesa cadastrada.</td></tr>';}
             function abrirDespesa(id=''){const d=despesas.find(x=>x.id===id)||{};document.getElementById('modalTitulo').textContent=id?'Editar despesa':'Nova despesa';document.getElementById('modalConteudo').innerHTML=`<div class="form-grid"><div class="field full"><label>Descrição</label><input id="dDescricao" value="${escapeHTML(d.descricao||'')}" placeholder="Aluguel, energia, IPTU, café..."></div><div class="field"><label>Categoria</label><select id="dCategoria">${['Aluguel','Água/energia','Internet','Contador','Impostos sobre NF','IPTU','Bombeiro','Café e alimentação','Limpeza','Outros'].map(v=>`<option ${d.categoria===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field"><label>Valor</label><input id="dValor" type="number" step="0.01" min="0" value="${d.valor??''}"></div><div class="field"><label>Vencimento</label><input id="dVencimento" type="date" value="${d.vencimento||''}"></div><div class="field"><label>Frequência</label><select id="dFrequencia">${['Única','Mensal','Anual'].map(v=>`<option ${d.frequencia===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="field"><label>Situação</label><select id="dStatus"><option ${d.status==='Pendente'?'selected':''}>Pendente</option><option ${d.status==='Pago'?'selected':''}>Pago</option></select></div></div><p style="font-size:12px;color:var(--texto-claro)">A frequência identifica a despesa. Para cada novo vencimento, registre o lançamento correspondente.</p>`;document.getElementById('modalSalvar').onclick=()=>salvarDespesa(id);abrirModal();}
             async function salvarDespesa(id){const descricao=document.getElementById('dDescricao').value.trim(),valor=Number(document.getElementById('dValor').value);if(!descricao||!Number.isFinite(valor)||valor<=0){alert('Preencha a descrição e um valor maior que zero.');return;}const r={descricao,categoria:document.getElementById('dCategoria').value,valor,vencimento:document.getElementById('dVencimento').value||null,frequencia:document.getElementById('dFrequencia').value,status:document.getElementById('dStatus').value};const q=id?sb.from('despesas').update(r).eq('id',id):sb.from('despesas').insert(r);const {error}=await q;if(error){alert('Erro ao salvar despesa: '+error.message);return;}fecharModal();await carregarDespesas();renderFinanceiro();renderDespesas();}
             async function excluirDespesa(id){if(!confirm('Excluir esta despesa?'))return;const {error}=await sb.from('despesas').delete().eq('id',id);if(error){alert(error.message);return;}await carregarDespesas();renderFinanceiro();renderDespesas();}
