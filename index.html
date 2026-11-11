@@ -2343,114 +2343,112 @@
                ANAMNESE
             ====================================================== */
 
+            /* ANAMNESE: verifica leitura e gravação antes de limpar o formulário */
+            let anamneseSalvando = false;
+            let anamneseCarregamento = 0;
+
             async function renderAnamnese(){
+              const pacienteId = pacienteAtual?.id;
+              if(!pacienteId) return;
+              const versao = ++anamneseCarregamento;
+              const area = document.getElementById("tab-anamnese");
+              area.innerHTML = '<div class="empty">Carregando anamnese...</div>';
 
-              const {data} =
-                await sb
-                  .from("anamneses")
-                  .select("*")
-                  .eq("paciente_id",pacienteAtual.id)
-                  .maybeSingle();
+              const {data, error} = await sb.from("anamneses")
+                .select("*")
+                .eq("paciente_id", pacienteId)
+                .order("atualizado_em", {ascending:false})
+                .limit(1);
 
-              document.getElementById("tab-anamnese").innerHTML = `
-
-                <div class="form-grid">
-
-                  <div class="field full">
-                    <label>Histórico familiar</label>
-                    <textarea id="aFamiliar">${
-                      escapeHTML(data?.historico_familiar || "")
-                    }</textarea>
-                  </div>
-
-                  <div class="field full">
-                    <label>Histórico pessoal</label>
-                    <textarea id="aPessoal">${
-                      escapeHTML(data?.historico_pessoal || "")
-                    }</textarea>
-                  </div>
-
-                  <div class="field full">
-                    <label>Uso de medicação</label>
-                    <textarea id="aMedicacao">${
-                      escapeHTML(data?.uso_medicacao || "")
-                    }</textarea>
-                  </div>
-
-                  <div class="field full">
-                    <label>Outras informações</label>
-                    <textarea id="aOutras">${escapeHTML(data?.outras_informacoes || "")}</textarea>
-                  </div>
-                  ${[['escolar_profissional','Escolar / profissional'],['relacionamentos','Relacionamentos'],['saude','Saúde'],['habitos','Hábitos'],['queixa_atual','Queixa atual'],['objetivos_terapeuticos','Objetivos terapêuticos']].map(([campo,titulo])=>`<div class="field full"><label>${titulo}</label><textarea id="an_${campo}">${escapeHTML(data?.[campo]||'')}</textarea></div>`).join('')}
-
+              if(versao !== anamneseCarregamento || pacienteAtual?.id !== pacienteId) return;
+              if(error){
+                area.innerHTML = `<div class="alert-card danger"><strong>Não foi possível carregar a anamnese.</strong><p>${escapeHTML(error.message)}</p><button class="btn-secondary" onclick="renderAnamnese()">Tentar novamente</button></div>`;
+                return;
+              }
+              const registro = data?.[0] || null;
+              const campos = [
+                ["historico_familiar","Histórico familiar"],
+                ["historico_pessoal","Histórico pessoal"],
+                ["uso_medicacao","Uso de medicação"],
+                ["outras_informacoes","Outras informações"],
+                ["escolar_profissional","Escolar / profissional"],
+                ["relacionamentos","Relacionamentos"],
+                ["saude","Saúde"],
+                ["habitos","Hábitos"],
+                ["queixa_atual","Queixa atual"],
+                ["objetivos_terapeuticos","Objetivos terapêuticos"]
+              ];
+              area.innerHTML = `
+                <div class="form-grid" id="formAnamnese" data-registro-id="${escapeHTML(registro?.id || "")}" data-paciente-id="${escapeHTML(pacienteId)}">
+                  ${campos.map(([campo,titulo])=>`
+                    <div class="field full">
+                      <label>${titulo}</label>
+                      <textarea data-anamnese-campo="${campo}">${escapeHTML(registro?.[campo] ?? "")}</textarea>
+                    </div>`).join("")}
                   <div class="full">
-                    <button
-                      class="btn-primary"
-                      onclick="salvarAnamnese('${data?.id || ""}')">
-                      Salvar anamnese
-                    </button>
+                    <button id="btnSalvarAnamnese" class="btn-primary" onclick="salvarAnamnese()">Salvar anamnese</button>
+                    <div id="avisoAnamnese" role="status" style="margin-top:10px;font-size:13px"></div>
                   </div>
-
-                </div>
-              `;
+                </div>`;
             }
 
-
-            async function salvarAnamnese(id){
-
-              const registro = {
-
-                paciente_id:pacienteAtual.id,
-
-                historico_familiar:
-                  document.getElementById("aFamiliar").value,
-
-                historico_pessoal:
-                  document.getElementById("aPessoal").value,
-
-                uso_medicacao:
-                  document.getElementById("aMedicacao").value,
-
-                outras_informacoes:
-                  document.getElementById("aOutras").value,
-                escolar_profissional:document.getElementById("an_escolar_profissional").value,
-                relacionamentos:document.getElementById("an_relacionamentos").value,
-                saude:document.getElementById("an_saude").value,
-                habitos:document.getElementById("an_habitos").value,
-                queixa_atual:document.getElementById("an_queixa_atual").value,
-                objetivos_terapeuticos:document.getElementById("an_objetivos_terapeuticos").value,
-
-                atualizado_em:new Date().toISOString()
-              };
-
-              let resposta;
-
-              if(id){
-
-                resposta =
-                  await sb
-                    .from("anamneses")
-                    .update(registro)
-                    .eq("id",id);
-
-              }else{
-
-                resposta =
-                  await sb
-                    .from("anamneses")
-                    .insert(registro);
-              }
-
-              if(resposta.error){
-
-                alert(resposta.error.message);
-
+            async function salvarAnamnese(){
+              if(anamneseSalvando) return;
+              const form = document.getElementById("formAnamnese");
+              const botao = document.getElementById("btnSalvarAnamnese");
+              const aviso = document.getElementById("avisoAnamnese");
+              const pacienteId = form?.dataset.pacienteId;
+              if(!form || !botao || !pacienteId || pacienteAtual?.id !== pacienteId){
+                alert("Abra novamente a ficha do paciente antes de salvar.");
                 return;
               }
 
-              alert("Anamnese salva com sucesso.");
+              const registro = {paciente_id:pacienteId, atualizado_em:new Date().toISOString()};
+              form.querySelectorAll("[data-anamnese-campo]").forEach(campo=>{
+                registro[campo.dataset.anamneseCampo] = campo.value;
+              });
 
-              renderAnamnese();
+              anamneseSalvando = true;
+              botao.disabled = true;
+              botao.textContent = "Salvando...";
+              aviso.textContent = "Gravando os dados no banco...";
+              aviso.style.color = "var(--texto-claro)";
+
+              try {
+                let gravado, error;
+                const id = form.dataset.registroId;
+                if(id){
+                  ({data:gravado, error} = await sb.from("anamneses")
+                    .update(registro).eq("id",id).eq("paciente_id",pacienteId)
+                    .select("*").maybeSingle());
+                } else {
+                  ({data:gravado, error} = await sb.from("anamneses")
+                    .insert(registro).select("*").single());
+                }
+                if(error) throw error;
+                if(!gravado?.id) throw new Error("O banco não confirmou a gravação do registro.");
+
+                const {data:conferencia,error:erroLeitura} = await sb.from("anamneses")
+                  .select("*").eq("id",gravado.id).eq("paciente_id",pacienteId).maybeSingle();
+                if(erroLeitura) throw erroLeitura;
+                if(!conferencia) throw new Error("O registro não pôde ser encontrado após salvar.");
+                const divergentes = Object.keys(registro).filter(campo=>
+                  campo !== "atualizado_em" && String(conferencia[campo] ?? "") !== String(registro[campo] ?? "")
+                );
+                if(divergentes.length) throw new Error("O banco retornou valores diferentes dos preenchidos: " + divergentes.join(", "));
+
+                form.dataset.registroId = gravado.id;
+                aviso.style.color = "var(--verde)";
+                aviso.textContent = "✓ Anamnese salva e conferida no banco. Os textos foram mantidos na tela.";
+              } catch(e){
+                console.error("Erro ao salvar anamnese:",e);
+                aviso.style.color = "var(--vermelho)";
+                aviso.textContent = "Não foi possível confirmar a gravação: " + (e?.message || "erro desconhecido") + ". Os textos continuam aqui. Copie-os antes de sair da página.";
+              } finally {
+                anamneseSalvando = false;
+                botao.disabled = false;
+                botao.textContent = "Salvar anamnese";
+              }
             }
 
 
