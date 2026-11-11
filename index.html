@@ -2531,6 +2531,45 @@
               document.getElementById("cpObs").value=c.observacoes||"";
               document.getElementById("modalSalvar").onclick=()=>salvarEdicaoCompromisso(id);
               abrirModal();
+              // Excluir também fica disponível ao abrir o compromisso pelo calendário.
+              document.getElementById("btnExcluirCompromissoModal")?.remove();
+              const excluir = document.createElement("button");
+              excluir.id = "btnExcluirCompromissoModal";
+              excluir.type = "button";
+              excluir.className = "btn-delete-session";
+              excluir.textContent = "Excluir compromisso";
+              excluir.onclick = ()=>excluirCompromissoDaEdicao(id);
+              document.querySelector("#modal .modal-footer").prepend(excluir);
+            }
+            async function excluirCompromissoDaEdicao(id){
+              const c = compromissosPessoais.find(x=>x.id===id);
+              if(!c) return;
+              const escopo = document.getElementById("cpEscopo")?.value || "uma";
+              const alvos = alvoCompromisso(c, escopo);
+              if(!alvos.length) return;
+              const descricao = escopo==="todas" ? "toda a recorrência" :
+                escopo==="futuras" ? "este compromisso e os próximos" : "somente este compromisso";
+              if(!confirm(`Deseja excluir ${descricao} (${alvos.length} registro(s))? Esta ação não pode ser desfeita.`)) return;
+              const botao = document.getElementById("btnExcluirCompromissoModal");
+              if(botao?.disabled) return;
+              botao.disabled = true;
+              botao.textContent = "Excluindo...";
+              try{
+                const {data,error} = await sb.from("compromissos_pessoais")
+                  .delete().in("id",alvos.map(x=>x.id)).select("id");
+                if(error) throw error;
+                if((data||[]).length!==alvos.length) throw new Error("O banco não confirmou a exclusão de todos os registros. Atualize a agenda e confira.");
+                fecharModal();
+                await carregarCompromissosPessoais();
+                renderAgenda();
+              }catch(e){
+                alert("Não foi possível confirmar a exclusão: "+e.message);
+                await carregarCompromissosPessoais();
+                renderAgenda();
+              }finally{
+                botao.disabled = false;
+                botao.textContent = "Excluir compromisso";
+              }
             }
             async function salvarEdicaoCompromisso(id){
               const original=compromissosPessoais.find(x=>x.id===id);if(!original)return;
@@ -4488,6 +4527,7 @@ Agradeço pela confiança e seguimos juntas nesse processo!`
               }
 
               document.getElementById("btnExcluirSessaoModal")?.remove();
+              document.getElementById("btnExcluirCompromissoModal")?.remove();
             }
 
 
